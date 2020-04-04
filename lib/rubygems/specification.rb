@@ -384,6 +384,7 @@ class Gem::Specification < Gem::BasicSpecification
   #     "mailing_list_uri"  => "https://groups.example.com/bestgemever",
   #     "source_code_uri"   => "https://example.com/user/bestgemever",
   #     "wiki_uri"          => "https://example.com/user/bestgemever/wiki"
+  #     "funding_uri"       => "https://example.com/donate"
   #   }
   #
   # These links will be used on your gem's page on rubygems.org and must pass
@@ -719,7 +720,7 @@ class Gem::Specification < Gem::BasicSpecification
   # Deprecated: You must now specify the executable name to  Gem.bin_path.
 
   attr_writer :default_executable
-  deprecate :default_executable=, :none,       2018, 12
+  deprecate :default_executable=, :none, 2018, 12
 
   ##
   # Allows deinstallation of gems with legacy platforms.
@@ -732,7 +733,7 @@ class Gem::Specification < Gem::BasicSpecification
   # Formerly used to set rubyforge project.
 
   attr_writer :rubyforge_project
-  deprecate :rubyforge_project=, :none,       2019, 12
+  deprecate :rubyforge_project=, :none, 2019, 12
 
   ##
   # The Gem::Specification version of this gemspec.
@@ -789,16 +790,6 @@ class Gem::Specification < Gem::BasicSpecification
   end
   private_class_method :map_stubs
 
-  def self.uniq_by(list, &block) # :nodoc:
-    list.uniq(&block)
-  end
-  private_class_method :uniq_by
-
-  def self.sort_by!(list, &block)
-    list.sort_by!(&block)
-  end
-  private_class_method :sort_by!
-
   def self.each_spec(dirs) # :nodoc:
     each_gemspec(dirs) do |path|
       spec = self.load path
@@ -813,7 +804,7 @@ class Gem::Specification < Gem::BasicSpecification
     @@stubs ||= begin
       pattern = "*.gemspec"
       stubs = Gem.loaded_specs.values + installed_stubs(dirs, pattern) + default_stubs(pattern)
-      stubs = uniq_by(stubs) { |stub| stub.full_name }
+      stubs = stubs.uniq { |stub| stub.full_name }
 
       _resort!(stubs)
       @@stubs_by_name = stubs.select { |s| Gem::Platform.match s.platform }.group_by(&:name)
@@ -846,7 +837,7 @@ class Gem::Specification < Gem::BasicSpecification
       stubs = Gem.loaded_specs.values +
         installed_stubs(dirs, pattern).select { |s| Gem::Platform.match s.platform } +
         default_stubs(pattern)
-      stubs = uniq_by(stubs) { |stub| stub.full_name }.group_by(&:name)
+      stubs = stubs.uniq { |stub| stub.full_name }.group_by(&:name)
       stubs.each_value { |v| _resort!(v) }
 
       @@stubs_by_name.merge! stubs
@@ -1084,6 +1075,13 @@ class Gem::Specification < Gem::BasicSpecification
 
   def self.latest_specs(prerelease = false)
     _latest_specs Gem::Specification._all, prerelease
+  end
+
+  ##
+  # Return the latest installed spec for gem +name+.
+
+  def self.latest_spec_for(name)
+    latest_specs(true).find { |installed_spec| installed_spec.name == name }
   end
 
   def self._latest_specs(specs, prerelease = false) # :nodoc:
@@ -1727,7 +1725,7 @@ class Gem::Specification < Gem::BasicSpecification
     end
     result
   end
-  deprecate :default_executable,  :none,       2018, 12
+  deprecate :default_executable, :none, 2018, 12
 
   ##
   # The default value for specification attribute +name+
@@ -1752,10 +1750,11 @@ class Gem::Specification < Gem::BasicSpecification
   #
   #   [depending_gem, dependency, [list_of_gems_that_satisfy_dependency]]
 
-  def dependent_gems
+  def dependent_gems(check_dev=true)
     out = []
     Gem::Specification.each do |spec|
-      spec.dependencies.each do |dep|
+      deps = check_dev ? spec.dependencies : spec.runtime_dependencies
+      deps.each do |dep|
         if self.satisfies_requirement?(dep)
           sats = []
           find_all_satisfiers(dep) do |sat|
@@ -1847,29 +1846,23 @@ class Gem::Specification < Gem::BasicSpecification
   end
 
   ##
-  # Sets executables to +value+, ensuring it is an array. Don't
-  # use this, push onto the array instead.
+  # Sets executables to +value+, ensuring it is an array.
 
   def executables=(value)
-    # TODO: warn about setting instead of pushing
     @executables = Array(value)
   end
 
   ##
-  # Sets extensions to +extensions+, ensuring it is an array. Don't
-  # use this, push onto the array instead.
+  # Sets extensions to +extensions+, ensuring it is an array.
 
   def extensions=(extensions)
-    # TODO: warn about setting instead of pushing
     @extensions = Array extensions
   end
 
   ##
-  # Sets extra_rdoc_files to +files+, ensuring it is an array. Don't
-  # use this, push onto the array instead.
+  # Sets extra_rdoc_files to +files+, ensuring it is an array.
 
   def extra_rdoc_files=(files)
-    # TODO: warn about setting instead of pushing
     @extra_rdoc_files = Array files
   end
 
@@ -1935,7 +1928,7 @@ class Gem::Specification < Gem::BasicSpecification
   def has_rdoc # :nodoc:
     true
   end
-  deprecate :has_rdoc,            :none,       2018, 12
+  deprecate :has_rdoc, :none, 2018, 12
 
   ##
   # Deprecated and ignored.
@@ -1945,10 +1938,10 @@ class Gem::Specification < Gem::BasicSpecification
   def has_rdoc=(ignored) # :nodoc:
     @has_rdoc = true
   end
-  deprecate :has_rdoc=,           :none,       2018, 12
+  deprecate :has_rdoc=, :none, 2018, 12
 
   alias :has_rdoc? :has_rdoc # :nodoc:
-  deprecate :has_rdoc?,           :none,       2018, 12
+  deprecate :has_rdoc?, :none, 2018, 12
 
   ##
   # True if this gem has files in test_files
@@ -2195,7 +2188,7 @@ class Gem::Specification < Gem::BasicSpecification
 
       attributes.each do |attr_name|
         current_value = self.send attr_name
-        current_value = current_value.sort if %i(files test_files).include? attr_name
+        current_value = current_value.sort if %i[files test_files].include? attr_name
         if current_value != default_value(attr_name) or
            self.class.required_attribute? attr_name
 
@@ -2245,11 +2238,9 @@ class Gem::Specification < Gem::BasicSpecification
   end
 
   ##
-  # Sets rdoc_options to +value+, ensuring it is an array. Don't
-  # use this, push onto the array instead.
+  # Sets rdoc_options to +value+, ensuring it is an array.
 
   def rdoc_options=(options)
-    # TODO: warn about setting instead of pushing
     @rdoc_options = Array options
   end
 
@@ -2268,11 +2259,9 @@ class Gem::Specification < Gem::BasicSpecification
   end
 
   ##
-  # Set requirements to +req+, ensuring it is an array. Don't
-  # use this, push onto the array instead.
+  # Set requirements to +req+, ensuring it is an array.
 
   def requirements=(req)
-    # TODO: warn about setting instead of pushing
     @requirements = Array req
   end
 

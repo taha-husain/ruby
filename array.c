@@ -216,9 +216,11 @@ ary_verify_(VALUE ary, const char *file, int line)
 #endif
     }
 
+#if USE_TRANSIENT_HEAP
     if (RARRAY_TRANSIENT_P(ary)) {
         assert(rb_transient_heap_managed_ptr_p(RARRAY_CONST_PTR_TRANSIENT(ary)));
     }
+#endif
 
     rb_transient_heap_verify();
 
@@ -1774,6 +1776,8 @@ rb_ary_fetch(int argc, VALUE *argv, VALUE ary)
  *     a.index("b")              #=> 1
  *     a.index("z")              #=> nil
  *     a.index {|x| x == "b"}    #=> 1
+ *
+ *  Array#index is an alias for Array#find_index.
  */
 
 static VALUE
@@ -2756,7 +2760,7 @@ sort_2(const void *ap, const void *bp, void *dummy)
     VALUE a = *(const VALUE *)ap, b = *(const VALUE *)bp;
     int n;
 
-    if (FIXNUM_P(a) && FIXNUM_P(b) && CMP_OPTIMIZABLE(data->cmp_opt, Fixnum)) {
+    if (FIXNUM_P(a) && FIXNUM_P(b) && CMP_OPTIMIZABLE(data->cmp_opt, Integer)) {
 	if ((long)a > (long)b) return 1;
 	if ((long)a < (long)b) return -1;
 	return 0;

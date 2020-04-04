@@ -636,21 +636,24 @@ class VCS
       cmd << date
       cmd.concat(arg)
       File.open(path, 'w') do |w|
+        w.print "-*- coding: utf-8 -*-\n\n"
         cmd_pipe(env, cmd, chdir: @srcdir) do |r|
           while s = r.gets("\ncommit ")
+            h, s = s.split(/^$/, 2)
+            h.gsub!(/^(?:Author|Date): /, '  \&')
             if s.sub!(/\nNotes \(log-fix\):\n((?: +.*\n)+)/, '')
               fix = $1
-              h, s = s.split(/^$/, 2)
               s = s.lines
               fix.each_line do |x|
                 if %r[^ +(\d+)s/(.+)/(.*)/] =~ x
                   s[$1.to_i][$2] = $3
                 end
               end
-              s = [h, s.join('')].join('')
+              s = s.join('')
             end
             s.gsub!(/ +\n/, "\n")
-            w.print s
+            s.sub!(/^Notes:/, '  \&')
+            w.print h, s
           end
         end
       end
@@ -725,7 +728,7 @@ class VCS
 
       commits = cmd_read([COMMAND, "log", "--reverse", "--format=%H %ae %ce", "#{com}..@"], "rb").split("\n")
       commits.each_with_index do |l, i|
-        r, a, c = l.split
+        r, a, c = l.split(' ')
         dcommit = [COMMAND, "svn", "dcommit"]
         dcommit.insert(-2, "-n") if dryrun
         dcommit << "--add-author-from" unless a == c

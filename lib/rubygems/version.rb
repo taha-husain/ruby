@@ -151,7 +151,7 @@
 
 class Gem::Version
 
-  autoload :Requirement, 'rubygems/requirement'
+  autoload :Requirement, File.expand_path('requirement', __dir__)
 
   include Comparable
 
@@ -187,7 +187,7 @@ class Gem::Version
   #   ver3 = Version.create(nil)        # -> nil
 
   def self.create(input)
-    if self === input  # check yourself before you wreck yourself
+    if self === input # check yourself before you wreck yourself
       input
     elsif input.nil?
       nil

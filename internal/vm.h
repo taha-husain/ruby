@@ -52,51 +52,6 @@ enum method_missing_reason {
     MISSING_NONE      = 0x40
 };
 
-struct rb_call_cache {
-    /* inline cache: keys */
-    rb_serial_t method_state;
-    rb_serial_t class_serial[
-        (CACHELINE
-         - sizeof(rb_serial_t)                                   /* method_state */
-         - sizeof(struct rb_callable_method_entry_struct *)      /* me */
-         - sizeof(uintptr_t)                                     /* method_serial */
-         - sizeof(enum method_missing_reason)                    /* aux */
-         - sizeof(VALUE (*)(                                     /* call */
-               struct rb_execution_context_struct *e,
-               struct rb_control_frame_struct *,
-               struct rb_calling_info *,
-               const struct rb_call_data *)))
-        / sizeof(rb_serial_t)
-    ];
-
-    /* inline cache: values */
-    const struct rb_callable_method_entry_struct *me;
-    uintptr_t method_serial; /* me->def->method_serial */
-
-    VALUE (*call)(struct rb_execution_context_struct *ec,
-                  struct rb_control_frame_struct *cfp,
-                  struct rb_calling_info *calling,
-                  struct rb_call_data *cd);
-
-    union {
-        unsigned int index; /* used by ivar */
-        enum method_missing_reason method_missing_reason; /* used by method_missing */
-    } aux;
-};
-STATIC_ASSERT(cachelined, sizeof(struct rb_call_cache) <= CACHELINE);
-
-struct rb_call_info {
-    /* fixed at compile time */
-    ID mid;
-    unsigned int flag;
-    int orig_argc;
-};
-
-struct rb_call_data {
-    struct rb_call_cache cc;
-    struct rb_call_info ci;
-};
-
 /* vm_insnhelper.h */
 rb_serial_t rb_next_class_serial(void);
 
@@ -146,15 +101,10 @@ MJIT_SYMBOL_EXPORT_END
 VALUE rb_equal_opt(VALUE obj1, VALUE obj2);
 VALUE rb_eql_opt(VALUE obj1, VALUE obj2);
 
+struct rb_iseq_struct;
 MJIT_SYMBOL_EXPORT_BEGIN
-void rb_vm_search_method_slowpath(struct rb_call_data *cd, VALUE klass);
+void rb_vm_search_method_slowpath(VALUE cd_owner, struct rb_call_data *cd, VALUE klass);
 MJIT_SYMBOL_EXPORT_END
-
-RUBY_SYMBOL_EXPORT_BEGIN
-/* vm_method.c */
-RUBY_FUNC_NONNULL(1, VALUE rb_funcallv_with_cc(struct rb_call_data*, VALUE, ID, int, const VALUE*));
-RUBY_FUNC_NONNULL(1, bool rb_method_basic_definition_p_with_cc(struct rb_call_data *, VALUE, ID));
-RUBY_SYMBOL_EXPORT_END
 
 /* vm_dump.c */
 void rb_print_backtrace(void);
@@ -173,20 +123,6 @@ MJIT_SYMBOL_EXPORT_BEGIN
 VALUE rb_ec_backtrace_object(const struct rb_execution_context_struct *ec);
 void rb_backtrace_use_iseq_first_lineno_for_last_location(VALUE self);
 MJIT_SYMBOL_EXPORT_END
-
-#ifdef __GNUC__
-# define rb_funcallv(recv, mid, argc, argv) \
-    __extension__({ \
-        static struct rb_call_data rb_funcallv_data; \
-        rb_funcallv_with_cc(&rb_funcallv_data, recv, mid, argc, argv); \
-    })
-# define rb_method_basic_definition_p(klass, mid) \
-    __extension__({ \
-        static struct rb_call_data rb_mbdp; \
-        (klass == Qfalse) ? /* hidden object cannot be overridden */ true : \
-            rb_method_basic_definition_p_with_cc(&rb_mbdp, klass, mid); \
-    })
-#endif
 
 #define RUBY_DTRACE_CREATE_HOOK(name, arg) \
     RUBY_DTRACE_HOOK(name##_CREATE, arg)

@@ -8,6 +8,7 @@ class TestGemGemRunner < Gem::TestCase
 
     require 'rubygems/command'
     @orig_args = Gem::Command.build_args
+    @orig_specific_extra_args = Gem::Command.specific_extra_args_hash.dup
 
     require 'rubygems/gem_runner'
     @runner = Gem::GemRunner.new
@@ -17,6 +18,7 @@ class TestGemGemRunner < Gem::TestCase
     super
 
     Gem::Command.build_args = @orig_args
+    Gem::Command.specific_extra_args_hash = @orig_specific_extra_args
   end
 
   def test_do_configuration
@@ -65,6 +67,46 @@ class TestGemGemRunner < Gem::TestCase
     args = %w[--foo -- --bar]
     assert_equal %w[--bar], @runner.extract_build_args(args)
     assert_equal %w[--foo], args
+  end
+
+  def test_query_is_deprecated
+    args = %w[query]
+
+    use_ui @ui do
+      assert_nil @runner.run(args)
+    end
+
+    assert_equal "WARNING:  query command is deprecated. It will be removed on or after 2020-12-01.\n", @ui.error
+  end
+
+  def test_info_succeeds
+    args = %w[info]
+
+    use_ui @ui do
+      assert_nil @runner.run(args)
+    end
+
+    assert_empty @ui.error
+  end
+
+  def test_list_succeeds
+    args = %w[list]
+
+    use_ui @ui do
+      assert_nil @runner.run(args)
+    end
+
+    assert_empty @ui.error
+  end
+
+  def test_search_succeeds
+    args = %w[search]
+
+    use_ui @ui do
+      assert_nil @runner.run(args)
+    end
+
+    assert_empty @ui.error
   end
 
 end

@@ -23,11 +23,11 @@ class TestGemCommandsSetupCommand < Gem::TestCase
     FileUtils.mkdir_p 'bin'
     FileUtils.mkdir_p 'lib/rubygems/ssl_certs/rubygems.org'
 
-    File.open 'bin/gem',                   'w' do
+    File.open 'bin/gem', 'w' do
       |io| io.puts '# gem'
     end
 
-    File.open 'lib/rubygems.rb',           'w' do |io|
+    File.open 'lib/rubygems.rb', 'w' do |io|
       io.puts '# rubygems.rb'
     end
 
@@ -42,15 +42,15 @@ class TestGemCommandsSetupCommand < Gem::TestCase
     FileUtils.mkdir_p 'bundler/exe'
     FileUtils.mkdir_p 'bundler/lib/bundler'
 
-    File.open 'bundler/exe/bundle',        'w' do |io|
+    File.open 'bundler/exe/bundle', 'w' do |io|
       io.puts '# bundle'
     end
 
-    File.open 'bundler/lib/bundler.rb',    'w' do |io|
+    File.open 'bundler/lib/bundler.rb', 'w' do |io|
       io.puts '# bundler.rb'
     end
 
-    File.open 'bundler/lib/bundler/b.rb',  'w' do |io|
+    File.open 'bundler/lib/bundler/b.rb', 'w' do |io|
       io.puts '# b.rb'
     end
 
@@ -63,7 +63,7 @@ class TestGemCommandsSetupCommand < Gem::TestCase
     gemspec.bindir = "exe"
     gemspec.executables = ["bundle"]
 
-    File.open 'bundler/bundler.gemspec',   'w' do |io|
+    File.open 'bundler/bundler.gemspec', 'w' do |io|
       io.puts gemspec.to_ruby
     end
 
@@ -98,6 +98,18 @@ class TestGemCommandsSetupCommand < Gem::TestCase
     File.join @gemhome, 'bin', name
   end
 
+  def gem_install_with_plugin(name)
+    gem = util_spec name do |s|
+      s.files = %W[lib/rubygems_plugin.rb]
+    end
+    write_file File.join @tempdir, 'lib', 'rubygems_plugin.rb' do |f|
+      f.puts "require '#{gem.plugins.first}'"
+    end
+    install_gem gem
+
+    File.join Gem.plugindir, "#{name}_plugin.rb"
+  end
+
   def test_execute_regenerate_binstubs
     gem_bin_path = gem_install 'a'
     write_file gem_bin_path do |io|
@@ -121,6 +133,43 @@ class TestGemCommandsSetupCommand < Gem::TestCase
     @cmd.execute
 
     assert_equal "I changed it!\n", File.read(gem_bin_path)
+  end
+
+  def test_execute_regenerate_plugins
+    gem_plugin_path = gem_install_with_plugin 'a'
+    write_file gem_plugin_path do |io|
+      io.puts 'I changed it!'
+    end
+
+    @cmd.options[:document] = []
+    @cmd.execute
+
+    assert_match %r{\Arequire}, File.read(gem_plugin_path)
+  end
+
+  def test_execute_no_regenerate_plugins
+    gem_plugin_path = gem_install_with_plugin 'a'
+    write_file gem_plugin_path do |io|
+      io.puts 'I changed it!'
+    end
+
+    @cmd.options[:document] = []
+    @cmd.options[:regenerate_plugins] = false
+    @cmd.execute
+
+    assert_equal "I changed it!\n", File.read(gem_plugin_path)
+  end
+
+  def test_execute_regenerate_plugins_creates_plugins_dir_if_not_there
+    gem_plugin_path = gem_install_with_plugin 'a'
+
+    # Simulate gem installed with an older rubygems without a plugins layout
+    FileUtils.rm_rf Gem.plugindir
+
+    @cmd.options[:document] = []
+    @cmd.execute
+
+    assert_match %r{\Arequire}, File.read(gem_plugin_path)
   end
 
   def test_execute_informs_about_installed_executables
@@ -147,15 +196,10 @@ class TestGemCommandsSetupCommand < Gem::TestCase
 
     ruby_exec = sprintf Gem.default_exec_format, 'ruby'
 
-    if Gem.win_platform?
-      assert_match %r%\A#!\s*#{ruby_exec}%, File.read(default_gem_bin_path)
-      assert_match %r%\A#!\s*#{ruby_exec}%, File.read(default_bundle_bin_path)
-      assert_match %r%\A#!\s*#{ruby_exec}%, File.read(gem_bin_path)
-    else
-      assert_match %r%\A#!/usr/bin/env #{ruby_exec}%, File.read(default_gem_bin_path)
-      assert_match %r%\A#!/usr/bin/env #{ruby_exec}%, File.read(default_bundle_bin_path)
-      assert_match %r%\A#!/usr/bin/env #{ruby_exec}%, File.read(gem_bin_path)
-    end
+    bin_env = win_platform? ? "" : %w[/usr/bin/env /bin/env].find {|f| File.executable?(f) } + " "
+    assert_match %r{\A#!\s*#{bin_env}#{ruby_exec}}, File.read(default_gem_bin_path)
+    assert_match %r{\A#!\s*#{bin_env}#{ruby_exec}}, File.read(default_bundle_bin_path)
+    assert_match %r{\A#!\s*#{bin_env}#{ruby_exec}}, File.read(gem_bin_path)
   end
 
   def test_pem_files_in
@@ -273,19 +317,19 @@ class TestGemCommandsSetupCommand < Gem::TestCase
     FileUtils.mkdir_p lib_rubygems_defaults
     FileUtils.mkdir_p lib_bundler
 
-    File.open securerandom_rb,    'w' do |io|
+    File.open securerandom_rb, 'w' do |io|
       io.puts '# securerandom.rb'
     end
 
-    File.open old_builder_rb,     'w' do |io|
+    File.open old_builder_rb, 'w' do |io|
       io.puts '# builder.rb'
     end
 
-    File.open old_format_rb,      'w' do |io|
+    File.open old_format_rb, 'w' do |io|
       io.puts '# format.rb'
     end
 
-    File.open old_bundler_c_rb,   'w' do |io|
+    File.open old_bundler_c_rb, 'w' do |io|
       io.puts '# c.rb'
     end
 
@@ -293,7 +337,7 @@ class TestGemCommandsSetupCommand < Gem::TestCase
       io.puts '# jruby.rb'
     end
 
-    File.open os_defaults_rb,     'w' do |io|
+    File.open os_defaults_rb, 'w' do |io|
       io.puts '# operating_system.rb'
     end
 

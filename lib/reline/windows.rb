@@ -5,6 +5,10 @@ class Reline::Windows
     Encoding::UTF_8
   end
 
+  def self.win?
+    true
+  end
+
   RAW_KEYSTROKE_CONFIG = {
     [224, 72] => :ed_prev_history, # ↑
     [224, 80] => :ed_next_history, # ↓
@@ -238,7 +242,7 @@ class Reline::Windows
 
   def self.scroll_down(val)
     return if val.zero?
-    scroll_rectangle = [0, val, get_screen_size.first, get_screen_size.last].pack('s4')
+    scroll_rectangle = [0, val, get_screen_size.last, get_screen_size.first].pack('s4')
     destination_origin = 0 # y * 65536 + x
     fill = [' '.ord, 0].pack('SS')
     @@ScrollConsoleScreenBuffer.call(@@hConsoleHandle, scroll_rectangle, nil, destination_origin, fill)
@@ -246,8 +250,8 @@ class Reline::Windows
 
   def self.clear_screen
     # TODO: Use FillConsoleOutputCharacter and FillConsoleOutputAttribute
-    print "\e[2J"
-    print "\e[1;1H"
+    write "\e[2J"
+    write "\e[1;1H"
   end
 
   def self.set_screen_size(rows, columns)

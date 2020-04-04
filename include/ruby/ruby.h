@@ -603,7 +603,6 @@ char *rb_string_value_cstr(volatile VALUE*);
 #define StringValuePtr(v) rb_string_value_ptr(&(v))
 #define StringValueCStr(v) rb_string_value_cstr(&(v))
 
-void rb_check_safe_obj(VALUE);
 #define SafeStringValue(v) StringValue(v)
 #if GCC_VERSION_SINCE(4,4,0)
 void rb_check_safe_str(VALUE) __attribute__((error("rb_check_safe_str() and Check_SafeStr() are obsolete; use StringValue() instead")));
@@ -751,15 +750,12 @@ VALUE rb_obj_setup(VALUE obj, VALUE klass, VALUE type);
 #define CLONESETUP(clone,obj) rb_clone_setup(clone,obj)
 #define DUPSETUP(dup,obj) rb_dup_setup(dup,obj)
 
-#ifndef USE_RGENGC
+#ifdef USE_RGENGC
+#undef USE_RGENGC
+#endif
 #define USE_RGENGC 1
 #ifndef USE_RINCGC
 #define USE_RINCGC 1
-#endif
-#endif
-
-#if USE_RGENGC == 0
-#define USE_RINCGC 0
 #endif
 
 #ifndef RGENGC_WB_PROTECTED_ARRAY
@@ -871,7 +867,7 @@ VALUE rb_obj_reveal(VALUE obj, VALUE klass); /* do not use this API to change kl
 
 #define RVALUE_EMBED_LEN_MAX RVALUE_EMBED_LEN_MAX
 enum ruby_rvalue_flags {
-    RVALUE_EMBED_LEN_MAX = 3,
+    RVALUE_EMBED_LEN_MAX = 3
 };
 
 #define ROBJECT_EMBED_LEN_MAX ROBJECT_EMBED_LEN_MAX
@@ -1442,7 +1438,6 @@ rb_data_typed_object_alloc(VALUE klass, void *datap, const rb_data_type_t *type)
 #define rb_data_object_make   RUBY_MACRO_SELECT(rb_data_object_make_, RUBY_UNTYPED_DATA_WARNING)
 #endif
 
-#if USE_RGENGC
 #define RB_OBJ_PROMOTED_RAW(x)      RB_FL_ALL_RAW(x, RUBY_FL_PROMOTED)
 #define RB_OBJ_PROMOTED(x)          (RB_SPECIAL_CONST_P(x) ? 0 : RB_OBJ_PROMOTED_RAW(x))
 #define RB_OBJ_WB_UNPROTECT(x)      rb_obj_wb_unprotect(x, __FILE__, __LINE__)
@@ -1450,10 +1445,6 @@ rb_data_typed_object_alloc(VALUE klass, void *datap, const rb_data_type_t *type)
 void rb_gc_writebarrier(VALUE a, VALUE b);
 void rb_gc_writebarrier_unprotect(VALUE obj);
 
-#else /* USE_RGENGC */
-#define RB_OBJ_PROMOTED(x)          0
-#define RB_OBJ_WB_UNPROTECT(x)      rb_obj_wb_unprotect(x, __FILE__, __LINE__)
-#endif
 #define OBJ_PROMOTED_RAW(x)         RB_OBJ_PROMOTED_RAW(x)
 #define OBJ_PROMOTED(x)             RB_OBJ_PROMOTED(x)
 #define OBJ_WB_UNPROTECT(x)         RB_OBJ_WB_UNPROTECT(x)
@@ -1487,9 +1478,7 @@ rb_obj_wb_unprotect(VALUE x, RB_UNUSED_VAR(const char *filename), RB_UNUSED_VAR(
 #ifdef RGENGC_LOGGING_WB_UNPROTECT
     RGENGC_LOGGING_WB_UNPROTECT((void *)x, filename, line);
 #endif
-#if USE_RGENGC
     rb_gc_writebarrier_unprotect(x);
-#endif
     return x;
 }
 
@@ -1500,11 +1489,9 @@ rb_obj_written(VALUE a, RB_UNUSED_VAR(VALUE oldv), VALUE b, RB_UNUSED_VAR(const 
     RGENGC_LOGGING_OBJ_WRITTEN(a, oldv, b, filename, line);
 #endif
 
-#if USE_RGENGC
     if (!RB_SPECIAL_CONST_P(b)) {
 	rb_gc_writebarrier(a, b);
     }
-#endif
 
     return a;
 }
@@ -1518,9 +1505,7 @@ rb_obj_write(VALUE a, VALUE *slot, VALUE b, RB_UNUSED_VAR(const char *filename),
 
     *slot = b;
 
-#if USE_RGENGC
     rb_obj_written(a, RUBY_Qundef /* ignore `oldv' now */, b, filename, line);
-#endif
     return a;
 }
 
@@ -1971,9 +1956,6 @@ RUBY_EXTERN VALUE rb_mWaitWritable;
 RUBY_EXTERN VALUE rb_cBasicObject;
 RUBY_EXTERN VALUE rb_cObject;
 RUBY_EXTERN VALUE rb_cArray;
-#ifndef RUBY_INTEGER_UNIFICATION
-RUBY_EXTERN VALUE rb_cBignum;
-#endif
 RUBY_EXTERN VALUE rb_cBinding;
 RUBY_EXTERN VALUE rb_cClass;
 RUBY_EXTERN VALUE rb_cCont;
@@ -1983,9 +1965,6 @@ RUBY_EXTERN VALUE rb_cEncoding;
 RUBY_EXTERN VALUE rb_cEnumerator;
 RUBY_EXTERN VALUE rb_cFalseClass;
 RUBY_EXTERN VALUE rb_cFile;
-#ifndef RUBY_INTEGER_UNIFICATION
-RUBY_EXTERN VALUE rb_cFixnum;
-#endif
 RUBY_EXTERN VALUE rb_cComplex;
 RUBY_EXTERN VALUE rb_cFloat;
 RUBY_EXTERN VALUE rb_cHash;
@@ -2293,6 +2272,20 @@ unsigned long ruby_strtoul(const char *str, char **endptr, int base);
 PRINTF_ARGS(int ruby_snprintf(char *str, size_t n, char const *fmt, ...), 3, 4);
 int ruby_vsnprintf(char *str, size_t n, char const *fmt, va_list ap);
 
+static inline int
+rb_scan_args_keyword_p(int kw_flag, VALUE last)
+{
+    switch (kw_flag) {
+      case RB_SCAN_ARGS_PASS_CALLED_KEYWORDS:
+	return rb_keyword_given_p();
+      case RB_SCAN_ARGS_KEYWORDS:
+	return 1;
+      case RB_SCAN_ARGS_LAST_HASH_KEYWORDS:
+	return RB_TYPE_P(last, T_HASH);
+    }
+    return 0;
+}
+
 #if defined(HAVE_BUILTIN___BUILTIN_CHOOSE_EXPR_CONSTANT_P) && defined(HAVE_VA_ARGS_MACRO) && defined(__OPTIMIZE__)
 # define rb_scan_args(argc,argvp,fmt,...) \
     __builtin_choose_expr(__builtin_constant_p(fmt), \
@@ -2300,6 +2293,12 @@ int ruby_vsnprintf(char *str, size_t n, char const *fmt, va_list ap);
 		      (sizeof((VALUE*[]){__VA_ARGS__})/sizeof(VALUE*)), \
 		      ((VALUE*[]){__VA_ARGS__})), \
         rb_scan_args(argc,argvp,fmt,##__VA_ARGS__))
+# define rb_scan_args_kw(kw_flag,argc,argvp,fmt,...) \
+    __builtin_choose_expr(__builtin_constant_p(fmt), \
+	rb_scan_args_kw0(kw_flag,argc,argvp,fmt,	\
+		      (sizeof((VALUE*[]){__VA_ARGS__})/sizeof(VALUE*)), \
+		      ((VALUE*[]){__VA_ARGS__})), \
+	rb_scan_args_kw(kw_flag,argc,argvp,fmt,##__VA_ARGS__))
 # if HAVE_ATTRIBUTE_ERRORFUNC
 ERRORFUNC(("bad scan arg format"), void rb_scan_args_bad_format(const char*));
 ERRORFUNC(("variable argument length doesn't match"), void rb_scan_args_length_mismatch(const char*,int));
@@ -2311,37 +2310,37 @@ ERRORFUNC(("variable argument length doesn't match"), void rb_scan_args_length_m
 # define rb_scan_args_isdigit(c) ((unsigned char)((c)-'0')<10)
 
 #  define rb_scan_args_count_end(fmt, ofs, vari) \
-     (fmt[ofs] ? -1 : (vari))
+     ((fmt)[ofs] ? -1 : (vari))
 
 # define rb_scan_args_count_block(fmt, ofs, vari) \
-    (fmt[ofs]!='&' ? \
+    ((fmt)[ofs]!='&' ? \
      rb_scan_args_count_end(fmt, ofs, vari) : \
-     rb_scan_args_count_end(fmt, ofs+1, vari+1))
+     rb_scan_args_count_end(fmt, (ofs)+1, (vari)+1))
 
 # define rb_scan_args_count_hash(fmt, ofs, vari) \
-    (fmt[ofs]!=':' ? \
+    ((fmt)[ofs]!=':' ? \
      rb_scan_args_count_block(fmt, ofs, vari) : \
-     rb_scan_args_count_block(fmt, ofs+1, vari+1))
+     rb_scan_args_count_block(fmt, (ofs)+1, (vari)+1))
 
 # define rb_scan_args_count_trail(fmt, ofs, vari) \
-    (!rb_scan_args_isdigit(fmt[ofs]) ? \
+    (!rb_scan_args_isdigit((fmt)[ofs]) ? \
      rb_scan_args_count_hash(fmt, ofs, vari) : \
-     rb_scan_args_count_hash(fmt, ofs+1, vari+(fmt[ofs]-'0')))
+     rb_scan_args_count_hash(fmt, (ofs)+1, (vari)+((fmt)[ofs]-'0')))
 
 # define rb_scan_args_count_var(fmt, ofs, vari) \
-    (fmt[ofs]!='*' ? \
+    ((fmt)[ofs]!='*' ? \
      rb_scan_args_count_trail(fmt, ofs, vari) : \
-     rb_scan_args_count_trail(fmt, ofs+1, vari+1))
+     rb_scan_args_count_trail(fmt, (ofs)+1, (vari)+1))
 
 # define rb_scan_args_count_opt(fmt, ofs, vari) \
-    (!rb_scan_args_isdigit(fmt[ofs]) ? \
+    (!rb_scan_args_isdigit((fmt)[ofs]) ? \
      rb_scan_args_count_var(fmt, ofs, vari) : \
-     rb_scan_args_count_var(fmt, ofs+1, vari+fmt[ofs]-'0'))
+     rb_scan_args_count_var(fmt, (ofs)+1, (vari)+(fmt)[ofs]-'0'))
 
 # define rb_scan_args_count_lead(fmt, ofs, vari) \
-    (!rb_scan_args_isdigit(fmt[ofs]) ? \
-      rb_scan_args_count_var(fmt, ofs, vari) : \
-      rb_scan_args_count_opt(fmt, ofs+1, vari+fmt[ofs]-'0'))
+    (!rb_scan_args_isdigit((fmt)[ofs]) ? \
+     rb_scan_args_count_var(fmt, ofs, vari) : \
+     rb_scan_args_count_opt(fmt, (ofs)+1, (vari)+(fmt)[ofs]-'0'))
 
 # define rb_scan_args_count(fmt) rb_scan_args_count_lead(fmt, 0, 0)
 
@@ -2457,7 +2456,16 @@ rb_scan_args_end_idx(const char *fmt)
 /* NOTE: Use `char *fmt` instead of `const char *fmt` because of clang's bug*/
 /* https://bugs.llvm.org/show_bug.cgi?id=38095 */
 # define rb_scan_args0(argc, argv, fmt, varc, vars) \
-    rb_scan_args_set(argc, argv, \
+    rb_scan_args_set(RB_SCAN_ARGS_PASS_CALLED_KEYWORDS, argc, argv, \
+		     rb_scan_args_n_lead(fmt), \
+		     rb_scan_args_n_opt(fmt), \
+		     rb_scan_args_n_trail(fmt), \
+		     rb_scan_args_f_var(fmt), \
+		     rb_scan_args_f_hash(fmt), \
+		     rb_scan_args_f_block(fmt), \
+		     (rb_scan_args_verify(fmt, varc), vars), (char *)fmt, varc)
+# define rb_scan_args_kw0(kw_flag, argc, argv, fmt, varc, vars) \
+    rb_scan_args_set(kw_flag, argc, argv, \
 		     rb_scan_args_n_lead(fmt), \
 		     rb_scan_args_n_opt(fmt), \
 		     rb_scan_args_n_trail(fmt), \
@@ -2466,28 +2474,31 @@ rb_scan_args_end_idx(const char *fmt)
 		     rb_scan_args_f_block(fmt), \
 		     (rb_scan_args_verify(fmt, varc), vars), (char *)fmt, varc)
 ALWAYS_INLINE(static int
-rb_scan_args_set(int argc, const VALUE *argv,
+rb_scan_args_set(int kw_flag, int argc, const VALUE *argv,
 		 int n_lead, int n_opt, int n_trail,
 		 int f_var, int f_hash, int f_block,
-		 VALUE *vars[], char *fmt, int varc));
+		 VALUE *vars[], const char *fmt, int varc));
 
 inline int
-rb_scan_args_set(int argc, const VALUE *argv,
+rb_scan_args_set(int kw_flag, int argc, const VALUE *argv,
 		 int n_lead, int n_opt, int n_trail,
 		 int f_var, int f_hash, int f_block,
-		 VALUE *vars[], RB_UNUSED_VAR(char *fmt), RB_UNUSED_VAR(int varc))
+		 VALUE *vars[], RB_UNUSED_VAR(const char *fmt), RB_UNUSED_VAR(int varc))
 # if defined(__has_attribute) && __has_attribute(diagnose_if)
     __attribute__((diagnose_if(rb_scan_args_count(fmt)<0,"bad scan arg format","error")))
     __attribute__((diagnose_if(rb_scan_args_count(fmt)!=varc,"variable argument length doesn't match","error")))
 # endif
 {
     int i, argi = 0, vari = 0;
-    VALUE *var, hash = Qnil, last_hash = 0;
+    VALUE *var, hash = Qnil;
     const int n_mand = n_lead + n_trail;
 
-    if (f_hash && argc > 0 && rb_keyword_given_p()) {
-        hash = rb_hash_dup(argv[argc - 1]);
-        argc--;
+    if (f_hash && argc > 0) {
+	VALUE last = argv[argc - 1];
+	if (rb_scan_args_keyword_p(kw_flag, last)) {
+	    hash = rb_hash_dup(last);
+	    argc--;
+	}
     }
 
     if (argc < n_mand) {
@@ -2517,11 +2528,7 @@ rb_scan_args_set(int argc, const VALUE *argv,
 
 	var = vars[vari++];
 	if (0 < n_var) {
-	    if (var) {
-		int f_last = (argc == n_trail);
-		*var = rb_ary_new4(n_var-f_last, &argv[argi]);
-		if (f_last) rb_ary_push(*var, last_hash);
-	    }
+	    if (var) *var = rb_ary_new4(n_var, &argv[argi]);
 	    argi += n_var;
 	}
 	else {

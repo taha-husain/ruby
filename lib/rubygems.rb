@@ -9,7 +9,7 @@
 require 'rbconfig'
 
 module Gem
-  VERSION = "3.1.2".freeze
+  VERSION = "3.2.0.pre1".freeze
 end
 
 # Must be first since it unloads the prelude from 1.9.2
@@ -26,27 +26,27 @@ require 'rubygems/errors'
 # For user documentation, see:
 #
 # * <tt>gem help</tt> and <tt>gem help [command]</tt>
-# * {RubyGems User Guide}[http://guides.rubygems.org/]
-# * {Frequently Asked Questions}[http://guides.rubygems.org/faqs]
+# * {RubyGems User Guide}[https://guides.rubygems.org/]
+# * {Frequently Asked Questions}[https://guides.rubygems.org/faqs]
 #
 # For gem developer documentation see:
 #
-# * {Creating Gems}[http://guides.rubygems.org/make-your-own-gem]
+# * {Creating Gems}[https://guides.rubygems.org/make-your-own-gem]
 # * Gem::Specification
 # * Gem::Version for version dependency notes
 #
 # Further RubyGems documentation can be found at:
 #
-# * {RubyGems Guides}[http://guides.rubygems.org]
-# * {RubyGems API}[http://www.rubydoc.info/github/rubygems/rubygems] (also available from
+# * {RubyGems Guides}[https://guides.rubygems.org]
+# * {RubyGems API}[https://www.rubydoc.info/github/rubygems/rubygems] (also available from
 #   <tt>gem server</tt>)
 #
 # == RubyGems Plugins
 #
-# As of RubyGems 1.3.2, RubyGems will load plugins installed in gems or
+# RubyGems will load plugins in the latest version of each installed gem or
 # $LOAD_PATH.  Plugins must be named 'rubygems_plugin' (.rb, .so, etc) and
-# placed at the root of your gem's #require_path.  Plugins are discovered via
-# Gem::find_files and then loaded.
+# placed at the root of your gem's #require_path.  Plugins are installed at a
+# special location and loaded on boot.
 #
 # For an example plugin, see the {Graph gem}[https://github.com/seattlerb/graph]
 # which adds a `gem graph` command.
@@ -148,6 +148,7 @@ module Gem
     doc
     extensions
     gems
+    plugins
     specifications
   ].freeze
 
@@ -188,6 +189,8 @@ module Gem
   @pre_install_hooks    ||= []
   @pre_reset_hooks      ||= []
   @post_reset_hooks     ||= []
+
+  @default_source_date_epoch = nil
 
   ##
   # Try to activate a gem containing +path+. Returns true if
@@ -316,6 +319,13 @@ module Gem
   end
 
   ##
+  # The path were rubygems plugins are to be installed.
+
+  def self.plugindir(install_dir=Gem.dir)
+    File.join install_dir, 'plugins'
+  end
+
+  ##
   # Reset the +dir+ and +path+ values.  The next time +dir+ or +path+
   # is requested, the values will be calculated from scratch.  This is
   # mainly used by the unit tests to provide test isolation.
@@ -409,8 +419,6 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
 
   ##
   # The path where gems are to be installed.
-  #--
-  # FIXME deprecate these once everything else has been done -ebh
 
   def self.dir
     paths.home
@@ -463,7 +471,10 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
     subdirs.each do |name|
       subdir = File.join dir, name
       next if File.exist? subdir
-      FileUtils.mkdir_p subdir, **options rescue nil
+      begin
+        FileUtils.mkdir_p subdir, **options
+      rescue Errno::EACCES
+      end
     end
   ensure
     File.umask old_umask
@@ -572,50 +583,6 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
   end
 
   private_class_method :find_home
-
-  # TODO:  remove in RubyGems 4.0
-
-  ##
-  # Zlib::GzipReader wrapper that unzips +data+.
-
-  def self.gunzip(data)
-    Gem::Util.gunzip data
-  end
-
-  class << self
-
-    extend Gem::Deprecate
-    deprecate :gunzip, "Gem::Util.gunzip", 2018, 12
-
-  end
-
-  ##
-  # Zlib::GzipWriter wrapper that zips +data+.
-
-  def self.gzip(data)
-    Gem::Util.gzip data
-  end
-
-  class << self
-
-    extend Gem::Deprecate
-    deprecate :gzip, "Gem::Util.gzip", 2018, 12
-
-  end
-
-  ##
-  # A Zlib::Inflate#inflate wrapper
-
-  def self.inflate(data)
-    Gem::Util.inflate data
-  end
-
-  class << self
-
-    extend Gem::Deprecate
-    deprecate :inflate, "Gem::Util.inflate", 2018, 12
-
-  end
 
   ##
   # Top level install helper method. Allows you to install gems interactively:
@@ -904,8 +871,7 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
 
   def self.ruby
     if @ruby.nil?
-      @ruby = File.join(RbConfig::CONFIG['bindir'],
-                        "#{RbConfig::CONFIG['ruby_install_name']}#{RbConfig::CONFIG['EXEEXT']}")
+      @ruby = RbConfig.ruby
 
       @ruby = "\"#{@ruby}\"" if @ruby =~ /\s/
     end
@@ -1018,8 +984,25 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
     @suffix_pattern ||= "{#{suffixes.join(',')}}"
   end
 
+  ##
+  # Regexp for require-able path suffixes.
+
   def self.suffix_regexp
     @suffix_regexp ||= /#{Regexp.union(suffixes)}\z/
+  end
+
+  ##
+  # Glob pattern for require-able plugin suffixes.
+
+  def self.plugin_suffix_pattern
+    @plugin_suffix_pattern ||= "_plugin#{suffix_pattern}"
+  end
+
+  ##
+  # Regexp for require-able plugin suffixes.
+
+  def self.plugin_suffix_regexp
+    @plugin_suffix_regexp ||= /_plugin#{suffix_regexp}\z/
   end
 
   ##
@@ -1028,7 +1011,7 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
   def self.suffixes
     @suffixes ||= ['',
                    '.rb',
-                   *%w(DLEXT DLEXT2).map do |key|
+                   *%w[DLEXT DLEXT2].map do |key|
                      val = RbConfig::CONFIG[key]
                      next unless val and not val.empty?
                      ".#{val}"
@@ -1120,35 +1103,17 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
   end
 
   ##
-  # Find the 'rubygems_plugin' files in the latest installed gems and load
-  # them
+  # Find rubygems plugin files in the standard location and load them
 
   def self.load_plugins
-    # Remove this env var by at least 3.0
-    if ENV['RUBYGEMS_LOAD_ALL_PLUGINS']
-      load_plugin_files find_files('rubygems_plugin', false)
-    else
-      load_plugin_files find_latest_files('rubygems_plugin', false)
-    end
+    load_plugin_files Gem::Util.glob_files_in_dir("*#{Gem.plugin_suffix_pattern}", plugindir)
   end
 
   ##
   # Find all 'rubygems_plugin' files in $LOAD_PATH and load them
 
   def self.load_env_plugins
-    path = "rubygems_plugin"
-
-    files = []
-    glob = "#{path}#{Gem.suffix_pattern}"
-    $LOAD_PATH.each do |load_path|
-      globbed = Gem::Util.glob_files_in_dir(glob, load_path)
-
-      globbed.each do |load_path_file|
-        files << load_path_file if File.file?(load_path_file.tap(&Gem::UNTAINT))
-      end
-    end
-
-    load_plugin_files files
+    load_plugin_files find_files_from_load_path("rubygems_plugin")
   end
 
   ##
@@ -1223,33 +1188,44 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
     end
   end
 
-  class << self
-
-    ##
-    # TODO remove with RubyGems 4.0
-
-    alias detect_gemdeps use_gemdeps # :nodoc:
-
-    extend Gem::Deprecate
-    deprecate :detect_gemdeps, "Gem.use_gemdeps", 2018, 12
-
-  end
-
   ##
-  # The SOURCE_DATE_EPOCH environment variable (or, if that's not set, the current time), converted to Time object.
-  # This is used throughout RubyGems for enabling reproducible builds.
+  # If the SOURCE_DATE_EPOCH environment variable is set, returns it's value.
+  # Otherwise, returns the time that `Gem.source_date_epoch_string` was
+  # first called in the same format as SOURCE_DATE_EPOCH.
   #
-  # If it is not set as an environment variable already, this also sets it.
+  # NOTE(@duckinator): The implementation is a tad weird because we want to:
+  #   1. Make builds reproducible by default, by having this function always
+  #      return the same result during a given run.
+  #   2. Allow changing ENV['SOURCE_DATE_EPOCH'] at runtime, since multiple
+  #      tests that set this variable will be run in a single process.
+  #
+  # If you simplify this function and a lot of tests fail, that is likely
+  # due to #2 above.
   #
   # Details on SOURCE_DATE_EPOCH:
   # https://reproducible-builds.org/specs/source-date-epoch/
 
-  def self.source_date_epoch
-    if ENV["SOURCE_DATE_EPOCH"].nil? || ENV["SOURCE_DATE_EPOCH"].empty?
-      ENV["SOURCE_DATE_EPOCH"] = Time.now.to_i.to_s
-    end
+  def self.source_date_epoch_string
+    # The value used if $SOURCE_DATE_EPOCH is not set.
+    @default_source_date_epoch ||= Time.now.to_i.to_s
 
-    Time.at(ENV["SOURCE_DATE_EPOCH"].to_i).utc.freeze
+    specified_epoch = ENV["SOURCE_DATE_EPOCH"]
+
+    # If it's empty or just whitespace, treat it like it wasn't set at all.
+    specified_epoch = nil if !specified_epoch.nil? && specified_epoch.strip.empty?
+
+    epoch = specified_epoch || @default_source_date_epoch
+
+    epoch.strip
+  end
+
+  ##
+  # Returns the value of Gem.source_date_epoch_string, as a Time object.
+  #
+  # This is used throughout RubyGems for enabling reproducible builds.
+
+  def self.source_date_epoch
+    Time.at(self.source_date_epoch_string.to_i).utc.freeze
   end
 
   # FIX: Almost everywhere else we use the `def self.` way of defining class
@@ -1366,23 +1342,23 @@ An Array (#{env.inspect}) was passed in from #{caller[3]}
 
   MARSHAL_SPEC_DIR = "quick/Marshal.#{Gem.marshal_version}/".freeze
 
-  autoload :BundlerVersionFinder, 'rubygems/bundler_version_finder'
-  autoload :ConfigFile,         'rubygems/config_file'
-  autoload :Dependency,         'rubygems/dependency'
-  autoload :DependencyList,     'rubygems/dependency_list'
-  autoload :Installer,          'rubygems/installer'
-  autoload :Licenses,           'rubygems/util/licenses'
-  autoload :PathSupport,        'rubygems/path_support'
-  autoload :Platform,           'rubygems/platform'
-  autoload :RequestSet,         'rubygems/request_set'
-  autoload :Requirement,        'rubygems/requirement'
-  autoload :Resolver,           'rubygems/resolver'
-  autoload :Source,             'rubygems/source'
-  autoload :SourceList,         'rubygems/source_list'
-  autoload :SpecFetcher,        'rubygems/spec_fetcher'
-  autoload :Specification,      'rubygems/specification'
-  autoload :Util,               'rubygems/util'
-  autoload :Version,            'rubygems/version'
+  autoload :BundlerVersionFinder, File.expand_path('rubygems/bundler_version_finder', __dir__)
+  autoload :ConfigFile,         File.expand_path('rubygems/config_file', __dir__)
+  autoload :Dependency,         File.expand_path('rubygems/dependency', __dir__)
+  autoload :DependencyList,     File.expand_path('rubygems/dependency_list', __dir__)
+  autoload :Installer,          File.expand_path('rubygems/installer', __dir__)
+  autoload :Licenses,           File.expand_path('rubygems/util/licenses', __dir__)
+  autoload :PathSupport,        File.expand_path('rubygems/path_support', __dir__)
+  autoload :Platform,           File.expand_path('rubygems/platform', __dir__)
+  autoload :RequestSet,         File.expand_path('rubygems/request_set', __dir__)
+  autoload :Requirement,        File.expand_path('rubygems/requirement', __dir__)
+  autoload :Resolver,           File.expand_path('rubygems/resolver', __dir__)
+  autoload :Source,             File.expand_path('rubygems/source', __dir__)
+  autoload :SourceList,         File.expand_path('rubygems/source_list', __dir__)
+  autoload :SpecFetcher,        File.expand_path('rubygems/spec_fetcher', __dir__)
+  autoload :Specification,      File.expand_path('rubygems/specification', __dir__)
+  autoload :Util,               File.expand_path('rubygems/util', __dir__)
+  autoload :Version,            File.expand_path('rubygems/version', __dir__)
 
   require "rubygems/specification"
 end

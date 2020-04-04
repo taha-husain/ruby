@@ -554,7 +554,7 @@ path_mtime(VALUE self)
 
 /*
  * call-seq:
- *   pathname.chmod	-> integer
+ *   pathname.chmod(mode_int)	-> integer
  *
  * Changes file permissions.
  *
@@ -568,7 +568,7 @@ path_chmod(VALUE self, VALUE mode)
 
 /*
  * call-seq:
- *   pathname.lchmod	-> integer
+ *   pathname.lchmod(mode_int)	-> integer
  *
  * Same as Pathname.chmod, but does not follow symbolic links.
  *
@@ -582,7 +582,7 @@ path_lchmod(VALUE self, VALUE mode)
 
 /*
  * call-seq:
- *   pathname.chown	-> integer
+ *   pathname.chown(owner_int, group_int)	-> integer
  *
  * Change owner and group of the file.
  *
@@ -596,7 +596,7 @@ path_chown(VALUE self, VALUE owner, VALUE group)
 
 /*
  * call-seq:
- *   pathname.lchown	-> integer
+ *   pathname.lchown(owner_int, group_int)	-> integer
  *
  * Same as Pathname.chown, but does not follow symbolic links.
  *
@@ -610,8 +610,8 @@ path_lchown(VALUE self, VALUE owner, VALUE group)
 
 /*
  * call-seq:
- *    pathname.fnmatch(pattern, [flags])        -> string
- *    pathname.fnmatch?(pattern, [flags])       -> string
+ *    pathname.fnmatch(pattern, [flags])        -> true or false
+ *    pathname.fnmatch?(pattern, [flags])       -> true or false
  *
  * Return +true+ if the receiver matches the given pattern.
  *
@@ -657,6 +657,13 @@ path_make_link(VALUE self, VALUE old)
 }
 
 /*
+ * call-seq:
+ *   pathname.open()
+ *   pathname.open(mode="r" [, opt])                        -> file
+ *   pathname.open([mode [, perm]] [, opt])                 -> file
+ *   pathname.open(mode="r" [, opt]) {|file| block }        -> obj
+ *   pathname.open([mode [, perm]] [, opt]) {|file| block } -> obj
+ *
  * Opens the file for reading or writing.
  *
  * See File.open.
@@ -1482,6 +1489,8 @@ path_f_pathname(VALUE self, VALUE str)
  * - #binread(*args)
  * - #readlines(*args)
  * - #sysopen(*args)
+ * - #write(*args)
+ * - #binwrite(*args)
  *
  * === Utilities
  *

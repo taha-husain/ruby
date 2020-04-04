@@ -2714,7 +2714,7 @@ ruby_glob(const char *path, int flags, ruby_glob_func *func, VALUE arg)
 {
     ruby_glob_funcs_t funcs;
     funcs.match = func;
-    funcs.error = NULL;
+    funcs.error = 0;
     return ruby_glob0(path, AT_FDCWD, 0, flags & ~GLOB_VERBOSE,
 		      &funcs, arg, rb_ascii8bit_encoding());
 }
@@ -2843,7 +2843,7 @@ ruby_brace_glob_with_enc(const char *str, int flags, ruby_glob_func *func, VALUE
 
     flags &= ~GLOB_VERBOSE;
     args.funcs.match = func;
-    args.funcs.error = NULL;
+    args.funcs.error = 0;
     args.value = arg;
     args.flags = flags;
     return ruby_brace_expand(str, flags, glob_brace, (VALUE)&args, enc, Qfalse);
@@ -3096,7 +3096,7 @@ dir_s_glob(int argc, VALUE *argv, VALUE obj)
 	ary = rb_push_glob(str, base, flags);
     }
     else {
-	VALUE v = ary;
+        VALUE v = rb_ary_replace(rb_ary_tmp_new(0), ary);
 	ary = dir_globs(RARRAY_LEN(v), RARRAY_CONST_PTR(v), base, flags);
 	RB_GC_GUARD(v);
     }

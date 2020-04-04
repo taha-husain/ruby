@@ -224,9 +224,10 @@ mjit_config.h: Makefile
 # Other `-Dxxx`s preceding `-DMJIT_HEADER` will be removed in transform_mjit_header.rb.
 # So `-DMJIT_HEADER` should be passed first when rb_mjit_header.h is generated.
 $(TIMESTAMPDIR)/$(MJIT_HEADER:.h=)$(MJIT_HEADER_SUFFIX).time: probes.h vm.$(OBJEXT) \
-		$(TIMESTAMPDIR)/$(arch)/.time
+		$(TIMESTAMPDIR)/$(arch)/.time $(srcdir)/tool/mjit_tabs.rb $(PREP)
 	$(ECHO) building $(@F:.time=.h)
-	$(Q) $(CPP) -DMJIT_HEADER $(MJIT_HEADER_FLAGS) $(CFLAGS) $(XCFLAGS) $(CPPFLAGS) $(srcdir)/vm.c $(CPPOUTFLAG)$(@F:.time=.h).new
+	$(MINIRUBY) $(srcdir)/tool/mjit_tabs.rb "$(MJIT_TABS)" \
+		$(CPP) -DMJIT_HEADER $(MJIT_HEADER_FLAGS) $(CFLAGS) $(XCFLAGS) $(CPPFLAGS) $(srcdir)/vm.c $(CPPOUTFLAG)$(@F:.time=.h).new
 	$(Q) $(IFCHANGE) "--timestamp=$@" $(@F:.time=.h) $(@F:.time=.h).new
 
 $(MJIT_HEADER:.h=)$(MJIT_HEADER_SUFFIX).h: $(TIMESTAMPDIR)/$(MJIT_HEADER:.h=)$(MJIT_HEADER_SUFFIX).time
@@ -367,17 +368,17 @@ pkgconfig-data: $(ruby_pc)
 $(ruby_pc): $(srcdir)/template/ruby.pc.in config.status
 
 install-all: docs pre-install-all do-install-all post-install-all
-pre-install-all:: all pre-install-local pre-install-ext pre-install-doc
+pre-install-all:: all pre-install-local pre-install-ext pre-install-gem pre-install-doc
 do-install-all: pre-install-all
 	$(INSTRUBY) --make="$(MAKE)" $(INSTRUBY_ARGS) $(INSTALL_DOC_OPTS)
-post-install-all:: post-install-local post-install-ext post-install-doc
+post-install-all:: post-install-local post-install-ext post-install-gem post-install-doc
 	@$(NULLCMD)
 
 install-nodoc: pre-install-nodoc do-install-nodoc post-install-nodoc
-pre-install-nodoc:: pre-install-local pre-install-ext
+pre-install-nodoc:: pre-install-local pre-install-ext pre-install-gem
 do-install-nodoc: main pre-install-nodoc
 	$(INSTRUBY) --make="$(MAKE)" $(INSTRUBY_ARGS) --exclude=doc
-post-install-nodoc:: post-install-local post-install-ext
+post-install-nodoc:: post-install-local post-install-ext post-install-gem
 
 install-local: pre-install-local do-install-local post-install-local
 pre-install-local:: pre-install-bin pre-install-lib pre-install-man
@@ -543,7 +544,7 @@ post-install-doc::
 	@$(NULLCMD)
 
 install-gem: pre-install-gem do-install-gem post-install-gem
-pre-install-gem:: pre-install-bin pre-install-lib pre-install-man
+pre-install-gem:: prepare-gems pre-install-bin pre-install-lib pre-install-man
 do-install-gem: $(PROGRAM) pre-install-gem
 	$(INSTRUBY) --make="$(MAKE)" $(INSTRUBY_ARGS) --install=gem
 post-install-gem::
@@ -865,6 +866,7 @@ PHONY:
 	$(ECHO) generating $@
 	$(Q)$(BASERUBY) $(srcdir)/tool/id2token.rb --path-separator=.$(PATH_SEPARATOR)./ --vpath=$(VPATH) id.h $(SRC_FILE) > parse.tmp.y
 	$(Q)$(BASERUBY) $(srcdir)/tool/pure_parser.rb parse.tmp.y $(YACC)
+	$(Q)$(RM) parse.tmp.y.bak
 	$(Q)$(YACC) -d $(YFLAGS) -o y.tab.c parse.tmp.y
 	$(Q)$(RM) parse.tmp.y
 	$(Q)sed -f $(srcdir)/tool/ytab.sed -e "/^#/s|parse\.tmp\.[iy]|$(SRC_FILE)|" -e "/^#/s!y\.tab\.c!$@!" y.tab.c > $@.new
@@ -1002,6 +1004,7 @@ BUILTIN_RB_SRCS = \
 		$(srcdir)/trace_point.rb \
 		$(srcdir)/warning.rb \
 		$(srcdir)/array.rb \
+		$(srcdir)/kernel.rb \
 		$(srcdir)/prelude.rb \
 		$(srcdir)/gem_prelude.rb \
 		$(empty)
@@ -1249,14 +1252,12 @@ dist:
 up:: update-remote
 
 up::
-	-$(Q)$(MAKE) $(mflags) Q=$(Q) REVISION_FORCE=PHONY "$(REVISION_H)"
-
-up::
-	-$(Q)$(MAKE) $(mflags) Q=$(Q) after-update
+	-$(Q)$(MAKE) $(mflags) Q=$(Q) REVISION_FORCE=PHONY after-update
 
 yes::
 no::
 
+after-update:: $(REVISION_H)
 after-update:: extract-extlibs
 after-update:: extract-gems
 
@@ -1272,9 +1273,10 @@ update-config_files: PHONY
 	$(Q) $(BASERUBY) -C "$(srcdir)" tool/downloader.rb -d tool --cache-dir=$(CACHE_DIR) -e gnu \
 	    config.guess config.sub
 
-refresh-gems: update-bundled_gems update-gems extract-gems
+refresh-gems: update-bundled_gems prepare-gems
+prepare-gems: update-gems extract-gems
 
-update-gems: PHONY
+update-gems$(gnumake:yes=-nongnumake): PHONY
 	$(ECHO) Downloading bundled gem files...
 	$(Q) $(BASERUBY) -C "$(srcdir)" \
 	    -I./tool -rdownloader -answ \
@@ -1287,13 +1289,14 @@ update-gems: PHONY
 	    -e 'FileUtils.rm_rf(old.map{'"|n|"'n.chomp(".gem")})' \
 	    gems/bundled_gems
 
-extract-gems: PHONY
+extract-gems$(gnumake:yes=-nongnumake): PHONY
 	$(ECHO) Extracting bundled gem files...
-	$(Q) $(RUNRUBY) -C "$(srcdir)/gems" \
-	    -I../tool -rgem-unpack -answ \
+	$(Q) $(RUNRUBY) -C "$(srcdir)" \
+	    -Itool -rgem-unpack -answ \
+	    -e 'BEGIN {FileUtils.mkdir_p(d = ".bundle/gems")}' \
 	    -e 'gem, ver = *$$F' \
-	    -e 'Gem.unpack("#{gem}-#{ver}.gem")' \
-	    bundled_gems
+	    -e 'Gem.unpack("gems/#{gem}-#{ver}.gem", d)' \
+	    gems/bundled_gems
 
 update-bundled_gems: PHONY
 	$(Q) $(RUNRUBY) -rrubygems \
@@ -1315,7 +1318,7 @@ test-bundled-gems-fetch: $(PREP)
 
 test-bundled-gems-prepare: test-bundled-gems-precheck test-bundled-gems-fetch
 	$(XRUBY) -C "$(srcdir)" bin/gem install --no-document \
-		--install-dir .bundle --conservative "bundler" "minitest:~> 5" 'test-unit' 'rake' 'hoe' 'yard' 'pry' 'packnga'
+		--install-dir .bundle --conservative "bundler" "minitest:~> 5" 'test-unit' 'rake' 'hoe' 'yard' 'pry' 'packnga' 'rexml'
 
 PREPARE_BUNDLED_GEMS = test-bundled-gems-prepare
 test-bundled-gems: $(TEST_RUNNABLE)-test-bundled-gems
@@ -1836,6 +1839,7 @@ compile.$(OBJEXT): {$(VPATH)}builtin.h
 compile.$(OBJEXT): {$(VPATH)}compile.c
 compile.$(OBJEXT): {$(VPATH)}config.h
 compile.$(OBJEXT): {$(VPATH)}constant.h
+compile.$(OBJEXT): {$(VPATH)}debug_counter.h
 compile.$(OBJEXT): {$(VPATH)}defines.h
 compile.$(OBJEXT): {$(VPATH)}encindex.h
 compile.$(OBJEXT): {$(VPATH)}encoding.h
@@ -1865,6 +1869,7 @@ compile.$(OBJEXT): {$(VPATH)}subst.h
 compile.$(OBJEXT): {$(VPATH)}thread_$(THREAD_MODEL).h
 compile.$(OBJEXT): {$(VPATH)}thread_native.h
 compile.$(OBJEXT): {$(VPATH)}util.h
+compile.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 compile.$(OBJEXT): {$(VPATH)}vm_core.h
 compile.$(OBJEXT): {$(VPATH)}vm_debug.h
 compile.$(OBJEXT): {$(VPATH)}vm_opts.h
@@ -1965,6 +1970,7 @@ debug.$(OBJEXT): $(top_srcdir)/internal/warnings.h
 debug.$(OBJEXT): {$(VPATH)}assert.h
 debug.$(OBJEXT): {$(VPATH)}config.h
 debug.$(OBJEXT): {$(VPATH)}debug.c
+debug.$(OBJEXT): {$(VPATH)}debug_counter.h
 debug.$(OBJEXT): {$(VPATH)}defines.h
 debug.$(OBJEXT): {$(VPATH)}encoding.h
 debug.$(OBJEXT): {$(VPATH)}eval_intern.h
@@ -1986,6 +1992,7 @@ debug.$(OBJEXT): {$(VPATH)}symbol.h
 debug.$(OBJEXT): {$(VPATH)}thread_$(THREAD_MODEL).h
 debug.$(OBJEXT): {$(VPATH)}thread_native.h
 debug.$(OBJEXT): {$(VPATH)}util.h
+debug.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 debug.$(OBJEXT): {$(VPATH)}vm_core.h
 debug.$(OBJEXT): {$(VPATH)}vm_debug.h
 debug.$(OBJEXT): {$(VPATH)}vm_opts.h
@@ -2436,6 +2443,7 @@ gc.$(OBJEXT): {$(VPATH)}thread_$(THREAD_MODEL).h
 gc.$(OBJEXT): {$(VPATH)}thread_native.h
 gc.$(OBJEXT): {$(VPATH)}transient_heap.h
 gc.$(OBJEXT): {$(VPATH)}util.h
+gc.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 gc.$(OBJEXT): {$(VPATH)}vm_core.h
 gc.$(OBJEXT): {$(VPATH)}vm_opts.h
 golf_prelude.$(OBJEXT): $(CCAN_DIR)/check_type/check_type.h
@@ -2662,6 +2670,7 @@ iseq.$(OBJEXT): {$(VPATH)}subst.h
 iseq.$(OBJEXT): {$(VPATH)}thread_$(THREAD_MODEL).h
 iseq.$(OBJEXT): {$(VPATH)}thread_native.h
 iseq.$(OBJEXT): {$(VPATH)}util.h
+iseq.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 iseq.$(OBJEXT): {$(VPATH)}vm_core.h
 iseq.$(OBJEXT): {$(VPATH)}vm_opts.h
 load.$(OBJEXT): $(CCAN_DIR)/check_type/check_type.h
@@ -2839,6 +2848,7 @@ miniinit.$(OBJEXT): {$(VPATH)}intern.h
 miniinit.$(OBJEXT): {$(VPATH)}internal.h
 miniinit.$(OBJEXT): {$(VPATH)}io.rb
 miniinit.$(OBJEXT): {$(VPATH)}iseq.h
+miniinit.$(OBJEXT): {$(VPATH)}kernel.rb
 miniinit.$(OBJEXT): {$(VPATH)}method.h
 miniinit.$(OBJEXT): {$(VPATH)}mini_builtin.c
 miniinit.$(OBJEXT): {$(VPATH)}miniinit.c
@@ -2896,9 +2906,11 @@ mjit.$(OBJEXT): $(CCAN_DIR)/list/list.h
 mjit.$(OBJEXT): $(CCAN_DIR)/str/str.h
 mjit.$(OBJEXT): $(hdrdir)/ruby.h
 mjit.$(OBJEXT): $(hdrdir)/ruby/ruby.h
+mjit.$(OBJEXT): $(hdrdir)/ruby/version.h
 mjit.$(OBJEXT): $(top_srcdir)/internal/array.h
 mjit.$(OBJEXT): $(top_srcdir)/internal/class.h
 mjit.$(OBJEXT): $(top_srcdir)/internal/compilers.h
+mjit.$(OBJEXT): $(top_srcdir)/internal/cont.h
 mjit.$(OBJEXT): $(top_srcdir)/internal/file.h
 mjit.$(OBJEXT): $(top_srcdir)/internal/gc.h
 mjit.$(OBJEXT): $(top_srcdir)/internal/hash.h
@@ -2939,6 +2951,7 @@ mjit.$(OBJEXT): {$(VPATH)}thread.h
 mjit.$(OBJEXT): {$(VPATH)}thread_$(THREAD_MODEL).h
 mjit.$(OBJEXT): {$(VPATH)}thread_native.h
 mjit.$(OBJEXT): {$(VPATH)}util.h
+mjit.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 mjit.$(OBJEXT): {$(VPATH)}vm_core.h
 mjit.$(OBJEXT): {$(VPATH)}vm_opts.h
 mjit_compile.$(OBJEXT): $(CCAN_DIR)/check_type/check_type.h
@@ -2985,6 +2998,7 @@ mjit_compile.$(OBJEXT): {$(VPATH)}st.h
 mjit_compile.$(OBJEXT): {$(VPATH)}subst.h
 mjit_compile.$(OBJEXT): {$(VPATH)}thread_$(THREAD_MODEL).h
 mjit_compile.$(OBJEXT): {$(VPATH)}thread_native.h
+mjit_compile.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 mjit_compile.$(OBJEXT): {$(VPATH)}vm_core.h
 mjit_compile.$(OBJEXT): {$(VPATH)}vm_exec.h
 mjit_compile.$(OBJEXT): {$(VPATH)}vm_insnhelper.h
@@ -3088,6 +3102,7 @@ object.$(OBJEXT): $(top_srcdir)/internal/variable.h
 object.$(OBJEXT): $(top_srcdir)/internal/vm.h
 object.$(OBJEXT): $(top_srcdir)/internal/warnings.h
 object.$(OBJEXT): {$(VPATH)}assert.h
+object.$(OBJEXT): {$(VPATH)}builtin.h
 object.$(OBJEXT): {$(VPATH)}config.h
 object.$(OBJEXT): {$(VPATH)}constant.h
 object.$(OBJEXT): {$(VPATH)}defines.h
@@ -3096,6 +3111,7 @@ object.$(OBJEXT): {$(VPATH)}id.h
 object.$(OBJEXT): {$(VPATH)}id_table.h
 object.$(OBJEXT): {$(VPATH)}intern.h
 object.$(OBJEXT): {$(VPATH)}internal.h
+object.$(OBJEXT): {$(VPATH)}kernel.rbinc
 object.$(OBJEXT): {$(VPATH)}missing.h
 object.$(OBJEXT): {$(VPATH)}object.c
 object.$(OBJEXT): {$(VPATH)}onigmo.h
@@ -3224,6 +3240,7 @@ proc.$(OBJEXT): $(top_srcdir)/internal/array.h
 proc.$(OBJEXT): $(top_srcdir)/internal/class.h
 proc.$(OBJEXT): $(top_srcdir)/internal/compilers.h
 proc.$(OBJEXT): $(top_srcdir)/internal/error.h
+proc.$(OBJEXT): $(top_srcdir)/internal/eval.h
 proc.$(OBJEXT): $(top_srcdir)/internal/gc.h
 proc.$(OBJEXT): $(top_srcdir)/internal/imemo.h
 proc.$(OBJEXT): $(top_srcdir)/internal/object.h
@@ -3269,6 +3286,7 @@ process.$(OBJEXT): $(hdrdir)/ruby/ruby.h
 process.$(OBJEXT): $(top_srcdir)/internal/array.h
 process.$(OBJEXT): $(top_srcdir)/internal/bits.h
 process.$(OBJEXT): $(top_srcdir)/internal/compilers.h
+process.$(OBJEXT): $(top_srcdir)/internal/dir.h
 process.$(OBJEXT): $(top_srcdir)/internal/error.h
 process.$(OBJEXT): $(top_srcdir)/internal/eval.h
 process.$(OBJEXT): $(top_srcdir)/internal/gc.h
@@ -3943,6 +3961,7 @@ transcode.$(OBJEXT): {$(VPATH)}assert.h
 transcode.$(OBJEXT): {$(VPATH)}config.h
 transcode.$(OBJEXT): {$(VPATH)}defines.h
 transcode.$(OBJEXT): {$(VPATH)}encoding.h
+transcode.$(OBJEXT): {$(VPATH)}id.h
 transcode.$(OBJEXT): {$(VPATH)}intern.h
 transcode.$(OBJEXT): {$(VPATH)}internal.h
 transcode.$(OBJEXT): {$(VPATH)}missing.h
@@ -4162,6 +4181,7 @@ vm.$(OBJEXT): {$(VPATH)}vm.h
 vm.$(OBJEXT): {$(VPATH)}vm.inc
 vm.$(OBJEXT): {$(VPATH)}vm_args.c
 vm.$(OBJEXT): {$(VPATH)}vm_call_iseq_optimized.inc
+vm.$(OBJEXT): {$(VPATH)}vm_callinfo.h
 vm.$(OBJEXT): {$(VPATH)}vm_core.h
 vm.$(OBJEXT): {$(VPATH)}vm_debug.h
 vm.$(OBJEXT): {$(VPATH)}vm_eval.c

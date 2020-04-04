@@ -883,6 +883,26 @@ rb_include_module(VALUE klass, VALUE module)
     changed = include_modules_at(klass, RCLASS_ORIGIN(klass), module, TRUE);
     if (changed < 0)
 	rb_raise(rb_eArgError, "cyclic include detected");
+
+    if (RB_TYPE_P(klass, T_MODULE)) {
+        rb_subclass_entry_t *iclass = RCLASS_EXT(klass)->subclasses;
+        int do_include = 1;
+        while (iclass) {
+            VALUE check_class = iclass->klass;
+            while (check_class) {
+                if (RB_TYPE_P(check_class, T_ICLASS) &&
+                        (RBASIC(check_class)->klass == module)) {
+                    do_include = 0;
+                }
+                check_class = RCLASS_SUPER(check_class);
+            }
+
+            if (do_include) {
+                include_modules_at(iclass->klass, RCLASS_ORIGIN(iclass->klass), module, TRUE);
+            }
+            iclass = iclass->next;
+        }
+    }
 }
 
 static enum rb_id_table_iterator_result
@@ -894,12 +914,21 @@ add_refined_method_entry_i(ID key, VALUE value, void *data)
 
 static void ensure_origin(VALUE klass);
 
+static enum rb_id_table_iterator_result
+clear_module_cache_i(ID id, VALUE val, void *data)
+{
+    VALUE klass = (VALUE)data;
+    rb_clear_method_cache(klass, id);
+    return ID_TABLE_CONTINUE;
+}
+
 static int
 include_modules_at(const VALUE klass, VALUE c, VALUE module, int search_super)
 {
     VALUE p, iclass;
     int method_changed = 0, constant_changed = 0;
     struct rb_id_table *const klass_m_tbl = RCLASS_M_TBL(RCLASS_ORIGIN(klass));
+    VALUE original_klass = klass;
 
     if (FL_TEST(module, RCLASS_REFINED_BY_ANY)) {
         ensure_origin(module);
@@ -912,7 +941,7 @@ include_modules_at(const VALUE klass, VALUE c, VALUE module, int search_super)
 	if (klass_m_tbl && klass_m_tbl == RCLASS_M_TBL(module))
 	    return -1;
 	/* ignore if the module included already in superclasses */
-	for (p = RCLASS_SUPER(klass); p; p = RCLASS_SUPER(p)) {
+        for (p = RCLASS_SUPER(klass); p; p = RCLASS_SUPER(p)) {
 	    int type = BUILTIN_TYPE(p);
 	    if (type == T_ICLASS) {
 		if (RCLASS_M_TBL(p) == RCLASS_M_TBL(module)) {
@@ -924,29 +953,46 @@ include_modules_at(const VALUE klass, VALUE c, VALUE module, int search_super)
 	    }
 	    else if (type == T_CLASS) {
 		if (!search_super) break;
-		superclass_seen = TRUE;
+                superclass_seen = TRUE;
 	    }
 	}
-	iclass = rb_include_class_new(module, RCLASS_SUPER(c));
+
+        VALUE super_class = RCLASS_SUPER(c);
+
+        // invalidate inline method cache
+        tbl = RMODULE_M_TBL(module);
+        if (tbl && rb_id_table_size(tbl)) {
+            if (search_super) { // include
+                if (super_class && !RB_TYPE_P(super_class, T_MODULE)) {
+                    rb_id_table_foreach(tbl, clear_module_cache_i, (void *)super_class);
+                }
+            }
+            else { // prepend
+                if (!RB_TYPE_P(original_klass, T_MODULE)) {
+                    rb_id_table_foreach(tbl, clear_module_cache_i, (void *)original_klass);
+                }
+            }
+            method_changed = 1;
+        }
+
+        // setup T_ICLASS for the include/prepend module
+	iclass = rb_include_class_new(module, super_class);
 	c = RCLASS_SET_SUPER(c, iclass);
         RCLASS_SET_INCLUDER(iclass, klass);
 
 	{
 	    VALUE m = module;
-	    if (BUILTIN_TYPE(m) == T_ICLASS) m = RBASIC(m)->klass;
-	    rb_module_add_to_subclasses_list(m, iclass);
+            if (BUILTIN_TYPE(m) == T_ICLASS) m = RBASIC(m)->klass;
+            rb_module_add_to_subclasses_list(m, iclass);
 	}
 
 	if (FL_TEST(klass, RMODULE_IS_REFINEMENT)) {
 	    VALUE refined_class =
 		rb_refinement_module_get_refined_class(klass);
 
-	    rb_id_table_foreach(RMODULE_M_TBL(module), add_refined_method_entry_i, (void *)refined_class);
+            rb_id_table_foreach(RMODULE_M_TBL(module), add_refined_method_entry_i, (void *)refined_class);
 	    FL_SET(c, RMODULE_INCLUDED_INTO_REFINEMENT);
 	}
-
-	tbl = RMODULE_M_TBL(module);
-	if (tbl && rb_id_table_size(tbl)) method_changed = 1;
 
 	tbl = RMODULE_CONST_TBL(module);
 	if (tbl && rb_id_table_size(tbl)) constant_changed = 1;
@@ -954,7 +1000,6 @@ include_modules_at(const VALUE klass, VALUE c, VALUE module, int search_super)
 	module = RCLASS_SUPER(module);
     }
 
-    if (method_changed) rb_clear_method_cache_by_class(klass);
     if (constant_changed) rb_clear_constant_cache();
 
     return method_changed;
@@ -1952,9 +1997,7 @@ rb_get_kwargs(VALUE keyword_hash, const ID *table, int required, int optional, V
 }
 
 struct rb_scan_args_t {
-    int argc;
-    const VALUE *argv;
-    va_list vargs;
+    int kw_flag;
     int f_var;
     int f_hash;
     int f_block;
@@ -1963,31 +2006,15 @@ struct rb_scan_args_t {
     int n_trail;
     int n_mand;
     int argi;
-    VALUE hash;
-    VALUE last_hash;
 };
 
 static void
-rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, struct rb_scan_args_t *arg)
+rb_scan_args_parse(int kw_flag, const char *fmt, struct rb_scan_args_t *arg)
 {
     const char *p = fmt;
-    int keyword_given = 0;
-    int last_hash_keyword = 0;
 
     memset(arg, 0, sizeof(*arg));
-    arg->hash = Qnil;
-
-    switch (kw_flag) {
-      case RB_SCAN_ARGS_PASS_CALLED_KEYWORDS:
-        keyword_given = rb_keyword_given_p();
-        break;
-      case RB_SCAN_ARGS_KEYWORDS:
-        keyword_given = 1;
-        break;
-      case RB_SCAN_ARGS_LAST_HASH_KEYWORDS:
-        last_hash_keyword = 1;
-        break;
-    }
+    arg->kw_flag = kw_flag;
 
     if (ISDIGIT(*p)) {
         arg->n_lead = *p - '0';
@@ -2017,42 +2044,37 @@ rb_scan_args_parse(int kw_flag, int argc, const VALUE *argv, const char *fmt, st
 	rb_fatal("bad scan arg format: %s", fmt);
     }
     arg->n_mand = arg->n_lead + arg->n_trail;
+}
+
+static int
+rb_scan_args_assign(const struct rb_scan_args_t *arg, int argc, const VALUE *const argv, va_list vargs)
+{
+    int i, argi = 0;
+    VALUE *var, hash = Qnil;
 
     if (arg->f_hash && argc > 0) {
         VALUE last = argv[argc - 1];
-
-        if (keyword_given || (last_hash_keyword && RB_TYPE_P(last, T_HASH))) {
-            arg->hash = rb_hash_dup(last);
+        if (rb_scan_args_keyword_p(arg->kw_flag, last)) {
+            hash = rb_hash_dup(last);
             argc--;
         }
     }
 
-    arg->argc = argc;
-    arg->argv = argv;
-}
-
-static int
-rb_scan_args_assign(struct rb_scan_args_t *arg, va_list vargs)
-{
-    int argi = 0;
-    int i;
-    VALUE *var;
-
-    if (arg->argc < arg->n_mand) {
-        return 1;
+    if (argc < arg->n_mand) {
+        goto argc_error;
     }
 
     /* capture leading mandatory arguments */
     for (i = arg->n_lead; i-- > 0; ) {
 	var = va_arg(vargs, VALUE *);
-        if (var) *var = arg->argv[argi];
+        if (var) *var = argv[argi];
 	argi++;
     }
     /* capture optional arguments */
     for (i = arg->n_opt; i-- > 0; ) {
 	var = va_arg(vargs, VALUE *);
-        if (argi < arg->argc - arg->n_trail) {
-            if (var) *var = arg->argv[argi];
+        if (argi < argc - arg->n_trail) {
+            if (var) *var = argv[argi];
 	    argi++;
 	}
 	else {
@@ -2061,15 +2083,11 @@ rb_scan_args_assign(struct rb_scan_args_t *arg, va_list vargs)
     }
     /* capture variable length arguments */
     if (arg->f_var) {
-        int n_var = arg->argc - argi - arg->n_trail;
+        int n_var = argc - argi - arg->n_trail;
 
 	var = va_arg(vargs, VALUE *);
 	if (0 < n_var) {
-	    if (var) {
-                int f_last = (arg->argc == arg->n_trail);
-                *var = rb_ary_new4(n_var - f_last, &arg->argv[argi]);
-                if (f_last) rb_ary_push(*var, arg->last_hash);
-	    }
+            if (var) *var = rb_ary_new4(n_var, &argv[argi]);
 	    argi += n_var;
 	}
 	else {
@@ -2079,13 +2097,13 @@ rb_scan_args_assign(struct rb_scan_args_t *arg, va_list vargs)
     /* capture trailing mandatory arguments */
     for (i = arg->n_trail; i-- > 0; ) {
 	var = va_arg(vargs, VALUE *);
-        if (var) *var = arg->argv[argi];
+        if (var) *var = argv[argi];
 	argi++;
     }
     /* capture an option hash - phase 2: assignment */
     if (arg->f_hash) {
 	var = va_arg(vargs, VALUE *);
-        if (var) *var = arg->hash;
+        if (var) *var = hash;
     }
     /* capture iterator block */
     if (arg->f_block) {
@@ -2098,42 +2116,47 @@ rb_scan_args_assign(struct rb_scan_args_t *arg, va_list vargs)
 	}
     }
 
-    if (argi < arg->argc) return 1;
+    if (argi < argc) {
+      argc_error:
+        return -(argc + 1);
+    }
 
-    return 0;
+    return argc;
+}
+
+static int
+rb_scan_args_result(const struct rb_scan_args_t *const arg, int argc)
+{
+    if (argc < 0) {
+        rb_error_arity(-1-argc, arg->n_mand, arg->f_var ? UNLIMITED_ARGUMENTS : arg->n_mand + arg->n_opt);
+    }
+    return argc;
 }
 
 #undef rb_scan_args
 int
 rb_scan_args(int argc, const VALUE *argv, const char *fmt, ...)
 {
-    int error;
     va_list vargs;
     struct rb_scan_args_t arg;
-    rb_scan_args_parse(RB_SCAN_ARGS_PASS_CALLED_KEYWORDS, argc, argv, fmt, &arg);
+    rb_scan_args_parse(RB_SCAN_ARGS_PASS_CALLED_KEYWORDS, fmt, &arg);
     va_start(vargs,fmt);
-    error = rb_scan_args_assign(&arg, vargs);
+    argc = rb_scan_args_assign(&arg, argc, argv, vargs);
     va_end(vargs);
-    if (error) {
-        rb_error_arity(arg.argc, arg.n_mand, arg.f_var ? UNLIMITED_ARGUMENTS : arg.n_mand + arg.n_opt);
-    }
-    return arg.argc;
+    return rb_scan_args_result(&arg, argc);
 }
 
+#undef rb_scan_args_kw
 int
 rb_scan_args_kw(int kw_flag, int argc, const VALUE *argv, const char *fmt, ...)
 {
-    int error;
     va_list vargs;
     struct rb_scan_args_t arg;
-    rb_scan_args_parse(kw_flag, argc, argv, fmt, &arg);
+    rb_scan_args_parse(kw_flag, fmt, &arg);
     va_start(vargs,fmt);
-    error = rb_scan_args_assign(&arg, vargs);
+    argc = rb_scan_args_assign(&arg, argc, argv, vargs);
     va_end(vargs);
-    if (error) {
-        rb_error_arity(arg.argc, arg.n_mand, arg.f_var ? UNLIMITED_ARGUMENTS : arg.n_mand + arg.n_opt);
-    }
-    return arg.argc;
+    return rb_scan_args_result(&arg, argc);
 }
 
 int

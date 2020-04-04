@@ -78,6 +78,20 @@ module Gem
   end
 end
 
+require "rubygems/command"
+
+class Gem::Command
+
+  ##
+  # Allows resetting the hash of specific args per command.  This method is
+  # available when requiring 'rubygems/test_case'
+
+  def self.specific_extra_args_hash=(value)
+    @specific_extra_args_hash = value
+  end
+
+end
+
 ##
 # RubyGemTestCase provides a variety of methods for testing rubygems and
 # gem-related behavior in a sandbox.  Through RubyGemTestCase you can install
@@ -111,12 +125,6 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
     loaded = Gem.loaded_specs.values.map(&:full_name)
 
     assert_equal expected.sort, loaded.sort if expected
-  end
-
-  # TODO: move to minitest
-  def assert_path_exists(path, msg = nil)
-    msg = message(msg) { "Expected path '#{path}' to exist" }
-    assert File.exist?(path), msg
   end
 
   def assert_directory_exists(path, msg = nil)
@@ -169,20 +177,24 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
   # original value when the block ends
   #
   def bindir(value)
-    bindir = RbConfig::CONFIG['bindir']
+    with_clean_path_to_ruby do
+      bindir = RbConfig::CONFIG['bindir']
 
-    if value
-      RbConfig::CONFIG['bindir'] = value
-    else
-      RbConfig::CONFIG.delete 'bindir'
-    end
+      if value
+        RbConfig::CONFIG['bindir'] = value
+      else
+        RbConfig::CONFIG.delete 'bindir'
+      end
 
-    yield
-  ensure
-    if bindir
-      RbConfig::CONFIG['bindir'] = bindir
-    else
-      RbConfig::CONFIG.delete 'bindir'
+      begin
+        yield
+      ensure
+        if bindir
+          RbConfig::CONFIG['bindir'] = bindir
+        else
+          RbConfig::CONFIG.delete 'bindir'
+        end
+      end
     end
   end
 
@@ -206,12 +218,6 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
     else
       RbConfig::CONFIG.delete 'EXEEXT'
     end
-  end
-
-  # TODO: move to minitest
-  def refute_path_exists(path, msg = nil)
-    msg = message(msg) { "Expected path '#{path}' to not exist" }
-    refute File.exist?(path), msg
   end
 
   def scan_make_command_lines(output)
@@ -321,6 +327,11 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
       @tempdir.tap(&Gem::UNTAINT)
     end
 
+    @orig_SYSTEM_WIDE_CONFIG_FILE = Gem::ConfigFile::SYSTEM_WIDE_CONFIG_FILE
+    Gem::ConfigFile.send :remove_const, :SYSTEM_WIDE_CONFIG_FILE
+    Gem::ConfigFile.send :const_set, :SYSTEM_WIDE_CONFIG_FILE,
+                         File.join(@tempdir, 'system-gemrc')
+
     @gemhome  = File.join @tempdir, 'gemhome'
     @userhome = File.join @tempdir, 'userhome'
     ENV["GEM_SPEC_CACHE"] = File.join @tempdir, 'spec_cache'
@@ -331,7 +342,7 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
                    ruby
                  end
 
-    @git = ENV['GIT'] || 'git'
+    @git = ENV['GIT'] || (win_platform? ? 'git.exe' : 'git')
 
     Gem.ensure_gem_subdirectories @gemhome
 
@@ -442,6 +453,10 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
 
     ENV.replace(@orig_env)
 
+    Gem::ConfigFile.send :remove_const, :SYSTEM_WIDE_CONFIG_FILE
+    Gem::ConfigFile.send :const_set, :SYSTEM_WIDE_CONFIG_FILE,
+                         @orig_SYSTEM_WIDE_CONFIG_FILE
+
     Gem.ruby = @orig_ruby if @orig_ruby
 
     if Gem.java_platform?
@@ -549,7 +564,7 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
   end
 
   def in_path?(executable) # :nodoc:
-    return true if %r%\A([A-Z]:|/)% =~ executable and File.exist? executable
+    return true if %r{\A([A-Z]:|/)} =~ executable and File.exist? executable
 
     ENV['PATH'].split(File::PATH_SEPARATOR).any? do |directory|
       File.exist? File.join directory, executable
@@ -562,7 +577,7 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
   def install_gem(spec, options = {})
     require 'rubygems/installer'
 
-    gem = File.join @tempdir, "gems", "#{spec.full_name}.gem"
+    gem = spec.cache_file
 
     unless File.exist? gem
       use_ui Gem::MockGemUi.new do
@@ -571,7 +586,7 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
         end
       end
 
-      gem = File.join(@tempdir, File.basename(spec.cache_file)).tap(&Gem::UNTAINT)
+      gem = File.join(@tempdir, File.basename(gem)).tap(&Gem::UNTAINT)
     end
 
     Gem::Installer.at(gem, options.merge({:wrappers => true})).install
@@ -666,8 +681,6 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
 
       yield(s) if block_given?
     end
-
-    Gem::Specification.map # HACK: force specs to (re-)load before we write
 
     written_path = write_file spec.spec_file do |io|
       io.write spec.to_ruby_for_cache
@@ -819,9 +832,7 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
     end
 
     if deps
-      # Since Hash#each is unordered in 1.8, sort the keys and iterate that
-      # way so the tests are deterministic on all implementations.
-      deps.keys.sort.each do |n|
+      deps.keys.each do |n|
         spec.add_dependency n, (deps[n] || '>= 0')
       end
     end
@@ -833,9 +844,6 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
 
       util_build_gem spec
 
-      cache_file = File.join @tempdir, 'gems', "#{spec.full_name}.gem"
-      FileUtils.mkdir_p File.dirname cache_file
-      FileUtils.mv spec.cache_file, cache_file
       FileUtils.rm spec.spec_file
     end
 
@@ -851,10 +859,7 @@ class Gem::TestCase < (defined?(Minitest::Test) ? Minitest::Test : MiniTest::Uni
   def util_gem(name, version, deps = nil, &block)
     if deps
       block = proc do |s|
-        # Since Hash#each is unordered in 1.8, sort
-        # the keys and iterate that way so the tests are
-        # deterministic on all implementations.
-        deps.keys.sort.each do |n|
+        deps.keys.each do |n|
           s.add_dependency n, (deps[n] || '>= 0')
         end
       end
@@ -1002,7 +1007,7 @@ Also, a list:
 
     spec_fetcher = Gem::SpecFetcher.fetcher
 
-    prerelease, all = all_specs.partition { |spec| spec.version.prerelease?  }
+    prerelease, all = all_specs.partition { |spec| spec.version.prerelease? }
     latest = Gem::Specification._latest_specs all_specs
 
     spec_fetcher.specs[@uri] = []
@@ -1238,13 +1243,20 @@ Also, a list:
     end
 
     begin
-      require "rbconfig"
-      File.join(RbConfig::CONFIG["bindir"],
-                RbConfig::CONFIG["ruby_install_name"] +
-                RbConfig::CONFIG["EXEEXT"])
+      Gem.ruby
     rescue LoadError
       "ruby"
     end
+  end
+
+  def with_clean_path_to_ruby
+    orig_ruby = Gem.ruby
+
+    Gem.instance_variable_set :@ruby, nil
+
+    yield
+  ensure
+    Gem.instance_variable_set :@ruby, orig_ruby
   end
 
   class << self
@@ -1257,7 +1269,7 @@ Also, a list:
 
     def escape_path(*path)
       path = File.join(*path)
-      if %r'\A[-+:/=@,.\w]+\z' =~ path
+      if %r{\A[-+:/=@,.\w]+\z} =~ path
         path
       else
         "\"#{path.gsub(/[`$"]/, '\\&')}\""

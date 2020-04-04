@@ -181,6 +181,7 @@ VALUE rb_cSymbol;
 
 #define STR_HEAP_PTR(str)  (RSTRING(str)->as.heap.ptr)
 #define STR_HEAP_SIZE(str) ((size_t)RSTRING(str)->as.heap.aux.capa + TERM_LEN(str))
+/* TODO: include the terminator size in capa. */
 
 #define STR_ENC_GET(str) get_encoding(str)
 
@@ -199,6 +200,7 @@ VALUE rb_cSymbol;
 static VALUE str_replace_shared_without_enc(VALUE str2, VALUE str);
 static VALUE str_new_shared(VALUE klass, VALUE str);
 static VALUE str_new_frozen(VALUE klass, VALUE orig);
+static VALUE str_new_frozen_buffer(VALUE klass, VALUE orig, int copy_encoding);
 static VALUE str_new_static(VALUE klass, const char *ptr, long len, int encindex);
 static void str_make_independent_expand(VALUE str, long len, long expand, const int termlen);
 static inline void str_modifiable(VALUE str);
@@ -214,14 +216,6 @@ str_make_independent(VALUE str)
 
 /* symbols for [up|down|swap]case/capitalize options */
 static VALUE sym_ascii, sym_turkic, sym_lithuanian, sym_fold;
-
-static const struct RString empty_fake_string = {
-    {
-	T_STRING | STR_FAKESTR |
-	ENC_CODERANGE_7BIT | (ENCINDEX_US_ASCII << ENCODING_SHIFT)
-    }
-};
-#define empty_string ((VALUE)&empty_fake_string)
 
 static rb_encoding *
 get_actual_encoding(const int encidx, VALUE str)
@@ -1233,7 +1227,7 @@ VALUE
 rb_str_tmp_frozen_acquire(VALUE orig)
 {
     if (OBJ_FROZEN_RAW(orig)) return orig;
-    return str_new_frozen(0, orig);
+    return str_new_frozen_buffer(0, orig, FALSE);
 }
 
 void
@@ -1264,6 +1258,12 @@ rb_str_tmp_frozen_release(VALUE orig, VALUE tmp)
 
 static VALUE
 str_new_frozen(VALUE klass, VALUE orig)
+{
+    return str_new_frozen_buffer(klass, orig, TRUE);
+}
+
+static VALUE
+str_new_frozen_buffer(VALUE klass, VALUE orig, int copy_encoding)
 {
     VALUE str;
 
@@ -1312,7 +1312,7 @@ str_new_frozen(VALUE klass, VALUE orig)
 	}
     }
 
-    rb_enc_cr_str_exact_copy(str, orig);
+    if (copy_encoding) rb_enc_cr_str_exact_copy(str, orig);
     OBJ_FREEZE(str);
     return str;
 }
@@ -1512,6 +1512,7 @@ str_duplicate(VALUE klass, VALUE str)
 	;
     VALUE flags = FL_TEST_RAW(str, flag_mask);
     VALUE dup = str_alloc(klass);
+    int encidx = 0;
     MEMCPY(RSTRING(dup)->as.ary, RSTRING(str)->as.ary,
 	   char, embed_size);
     if (flags & STR_NOEMBED) {
@@ -1531,7 +1532,12 @@ str_duplicate(VALUE klass, VALUE str)
 		   char, embed_size);
 	}
     }
+    if ((flags & ENCODING_MASK) == (ENCODING_INLINE_MAX<<ENCODING_SHIFT)) {
+	encidx = rb_enc_get_index(str);
+	flags &= ~ENCODING_MASK;
+    }
     FL_SET_RAW(dup, flags & ~FL_FREEZE);
+    if (encidx) rb_enc_associate_index(dup, encidx);
     return dup;
 }
 
@@ -4889,16 +4895,78 @@ rb_str_insert(VALUE str, VALUE idx, VALUE str2)
 static VALUE
 rb_str_slice_bang(int argc, VALUE *argv, VALUE str)
 {
-    VALUE result;
-    VALUE buf[3];
+    VALUE result = Qnil;
+    VALUE indx;
+    long beg, len = 1;
+    char *p;
 
     rb_check_arity(argc, 1, 2);
-    MEMCPY(buf, argv, VALUE, argc);
     str_modify_keep_cr(str);
-    result = rb_str_aref_m(argc, buf, str);
-    if (!NIL_P(result)) {
-        buf[argc] = empty_string;
-        rb_str_aset_m(argc+1, buf, str);
+    indx = argv[0];
+    if (RB_TYPE_P(indx, T_REGEXP)) {
+	if (rb_reg_search(indx, str, 0, 0) < 0) return Qnil;
+	VALUE match = rb_backref_get();
+	struct re_registers *regs = RMATCH_REGS(match);
+	int nth = 0;
+	if (argc > 1 && (nth = rb_reg_backref_number(match, argv[1])) < 0) {
+	    if ((nth += regs->num_regs) <= 0) return Qnil;
+	}
+	else if (nth >= regs->num_regs) return Qnil;
+	beg = BEG(nth);
+	len = END(nth) - beg;
+      subseq:
+        result = rb_str_new_with_class(str, RSTRING_PTR(str)+beg, len);
+	rb_enc_cr_str_copy_for_substr(result, str);
+    }
+    else if (argc == 2) {
+	beg = NUM2LONG(indx);
+	len = NUM2LONG(argv[1]);
+      num_index:
+	if (!(p = rb_str_subpos(str, beg, &len))) return Qnil;
+	beg = p - RSTRING_PTR(str);
+	goto subseq;
+    }
+    else if (FIXNUM_P(indx)) {
+	beg = FIX2LONG(indx);
+	if (!(p = rb_str_subpos(str, beg, &len))) return Qnil;
+	if (!len) return Qnil;
+	beg = p - RSTRING_PTR(str);
+	goto subseq;
+    }
+    else if (RB_TYPE_P(indx, T_STRING)) {
+	beg = rb_str_index(str, indx, 0);
+	if (beg == -1) return Qnil;
+	len = RSTRING_LEN(indx);
+	result = rb_str_dup(indx);
+    }
+    else {
+	switch (rb_range_beg_len(indx, &beg, &len, str_strlen(str, NULL), 0)) {
+	  case Qnil:
+	    return Qnil;
+	  case Qfalse:
+	    beg = NUM2LONG(indx);
+	    goto num_index;
+	  default:
+	    goto num_index;
+	}
+    }
+
+    if (len > 0) {
+	if (beg == 0) {
+	    rb_str_drop_bytes(str, len);
+	}
+	else {
+	    char *sptr = RSTRING_PTR(str);
+	    long slen = RSTRING_LEN(str);
+	    if (beg + len > slen) /* pathological check */
+		len = slen - beg;
+	    memmove(sptr + beg,
+		    sptr + beg + len,
+		    slen - (beg + len));
+	    slen -= len;
+	    STR_SET_LEN(str, slen);
+	    TERM_FILL(&sptr[slen], TERM_LEN(str));
+	}
     }
     return result;
 }
@@ -8176,6 +8244,21 @@ chomp_newline(const char *p, const char *e, rb_encoding *enc)
     }
     return e;
 }
+
+static VALUE
+get_rs(void)
+{
+    VALUE rs = rb_rs;
+    if (!NIL_P(rs) &&
+	(!RB_TYPE_P(rs, T_STRING) ||
+	 RSTRING_LEN(rs) != 1 ||
+	 RSTRING_PTR(rs)[0] != '\n')) {
+        rb_warn("$/ is set to non-default value");
+    }
+    return rs;
+}
+
+#define rb_rs get_rs()
 
 static VALUE
 rb_str_enumerate_lines(int argc, VALUE *argv, VALUE str, VALUE ary)

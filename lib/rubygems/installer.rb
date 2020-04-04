@@ -6,6 +6,7 @@
 #++
 
 require 'rubygems/command'
+require 'rubygems/installer_uninstaller_utils'
 require 'rubygems/exceptions'
 require 'rubygems/deprecate'
 require 'rubygems/package'
@@ -43,10 +44,7 @@ class Gem::Installer
 
   include Gem::UserInteraction
 
-  ##
-  # Filename of the gem being installed.
-
-  attr_reader :gem
+  include Gem::InstallerUninstallerUtils
 
   ##
   # The directory a gem's executables will be installed into
@@ -180,15 +178,7 @@ class Gem::Installer
     require 'fileutils'
 
     @options = options
-    if package.is_a? String
-      security_policy = options[:security_policy]
-      @package = Gem::Package.new package, security_policy
-      if $VERBOSE
-        warn "constructing an Installer object with a string is deprecated. Please use Gem::Installer.at (called from: #{caller.first})"
-      end
-    else
-      @package = package
-    end
+    @package = package
 
     process_options
 
@@ -330,6 +320,7 @@ class Gem::Installer
     end
 
     generate_bin
+    generate_plugins
 
     unless @options[:install_as_default]
       write_spec
@@ -491,13 +482,7 @@ class Gem::Installer
   def generate_bin # :nodoc:
     return if spec.executables.nil? or spec.executables.empty?
 
-    begin
-      Dir.mkdir @bin_dir, *[options[:dir_mode] && 0755].compact
-    rescue SystemCallError
-      raise unless File.directory? @bin_dir
-    end
-
-    raise Gem::FilePermissionError.new(@bin_dir) unless File.writable? @bin_dir
+    ensure_writable_dir @bin_dir
 
     spec.executables.each do |filename|
       filename.tap(&Gem::UNTAINT)
@@ -520,7 +505,19 @@ class Gem::Installer
       else
         generate_bin_symlink filename, @bin_dir
       end
+    end
+  end
 
+  def generate_plugins # :nodoc:
+    latest = Gem::Specification.latest_spec_for(spec.name)
+    return if latest && latest.version > spec.version
+
+    ensure_writable_dir @plugins_dir
+
+    if spec.plugins.empty?
+      remove_plugins_for(spec, @plugins_dir)
+    else
+      regenerate_plugins_for(spec, @plugins_dir)
     end
   end
 
@@ -684,6 +681,7 @@ class Gem::Installer
     @force               = options[:force]
     @install_dir         = options[:install_dir]
     @gem_home            = options[:install_dir] || Gem.dir
+    @plugins_dir         = Gem.plugindir(@gem_home)
     @ignore_dependencies = options[:ignore_dependencies]
     @format_executable   = options[:format_executable]
     @wrappers            = options[:wrappers]
@@ -810,7 +808,7 @@ TEXT
     ruby_exe = "ruby.exe" if ruby_exe.empty?
 
     if File.exist?(File.join bindir, ruby_exe)
-      # stub & ruby.exe withing same folder.  Portable
+      # stub & ruby.exe within same folder.  Portable
       <<-TEXT
 @ECHO OFF
 @"%~dp0#{ruby_exe}" "%~dpn0" %*
@@ -843,18 +841,6 @@ TEXT
 
     builder.build_extensions
   end
-
-  ##
-  # Logs the build +output+ in +build_dir+, then raises Gem::Ext::BuildError.
-  #
-  # TODO:  Delete this for RubyGems 4.  It remains for API compatibility
-
-  def extension_build_error(build_dir, output, backtrace = nil) # :nodoc:
-    builder = Gem::Ext::Builder.new spec, @build_args
-
-    builder.build_error build_dir, output, backtrace
-  end
-  deprecate :extension_build_error, :none, 2018, 12
 
   ##
   # Reads the file index and extracts each file into the gem directory.
@@ -893,6 +879,13 @@ TEXT
 
   def dir
     gem_dir.to_s
+  end
+
+  ##
+  # Filename of the gem being installed.
+
+  def gem
+    @package.gem.path
   end
 
   ##
@@ -957,6 +950,16 @@ TEXT
   def write_cache_file
     cache_file = File.join gem_home, 'cache', spec.file_name
     @package.copy_to cache_file
+  end
+
+  def ensure_writable_dir(dir) # :nodoc:
+    begin
+      Dir.mkdir dir, *[options[:dir_mode] && 0755].compact
+    rescue SystemCallError
+      raise unless File.directory? dir
+    end
+
+    raise Gem::FilePermissionError.new(dir) unless File.writable? dir
   end
 
 end

@@ -88,7 +88,7 @@ in the mail body (not subject) to the address
     environment. Specify `optflags=..` and `warnflags=..` as necessary to
     override them.
 
-4.  Edit `defines.h` if you need. Usually this step will not be needed.
+4.  Edit `include/ruby/defines.h` if you need. Usually this step will not be needed.
 
 5.  Remove comment mark(`#`) before the module names from `ext/Setup` (or add
     module names if not present), if you want to link modules statically.
@@ -108,12 +108,7 @@ in the mail body (not subject) to the address
     interpreter works well. If you see the message "`check succeeded`", your
     Ruby works as it should (hopefully).
 
-8.  Optionally, run `make update-gems` and `make extract-gems`.
-
-    If you want to install bundled gems, run `make update-gems` and
-    `make extract-gems` before running `make install`.
-
-9.  Run '`make install`'.
+8.  Run '`make install`'.
 
     This command will create the following directories and install files into
     them.

@@ -103,6 +103,7 @@ class WEBrick::TestFileHandler < Test::Unit::TestCase
     bug2593 = '[ruby-dev:40030]'
 
     TestWEBrick.start_httpserver(config) do |server, addr, port, log|
+      server[:DocumentRootOptions][:NondisclosureName] = []
       http = Net::HTTP.new(addr, port)
       req = Net::HTTP::Get.new("/")
       http.request(req){|res|
@@ -176,7 +177,8 @@ class WEBrick::TestFileHandler < Test::Unit::TestCase
         assert_equal("206", res.code, log.call)
         assert_equal("multipart/byteranges", res.content_type, log.call)
       }
-
+    ensure
+      server[:DocumentRootOptions].delete :NondisclosureName
     end
   end
 

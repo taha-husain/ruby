@@ -2260,8 +2260,6 @@ EOS
         pid = fork {Process.kill(:QUIT, parent)}
         IO.popen([ruby, -'--disable=gems'], -'r+'){}
         Process.wait(pid)
-        $stdout.puts
-        $stdout.flush
       end
     INPUT
   end if defined?(fork)
@@ -2383,7 +2381,7 @@ EOS
       end
       w.close
       assert_equal "exec failed\n", r.gets
-      vals = r.gets.chomp.split.map!(&:to_i)
+      vals = r.gets.split.map!(&:to_i)
       assert_operator vals[0], :>, vals[1], vals.inspect
       _, status = Process.waitpid2(pid)
     end
@@ -2398,6 +2396,15 @@ EOS
     w.close if w
     r.close if r
   end if defined?(fork)
+
+  def test_rescue_exec_fail
+    assert_separately([], "#{<<~"begin;"}\n#{<<~'end;'}")
+    begin;
+      assert_raise(Errno::ENOENT) do
+        exec("", in: "")
+      end
+    end;
+  end
 
   def test_many_args
     bug11418 = '[ruby-core:70251] [Bug #11418]'

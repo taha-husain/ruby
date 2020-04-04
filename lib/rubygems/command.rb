@@ -174,8 +174,7 @@ class Gem::Command
     alert_error msg
 
     unless suppress_suggestions
-      suggestions = Gem::SpecFetcher.fetcher.suggest_gems_from_name gem_name
-
+      suggestions = Gem::SpecFetcher.fetcher.suggest_gems_from_name(gem_name, :latest, 10)
       unless suggestions.empty?
         alert_error "Possible alternatives: #{suggestions.join(", ")}"
       end
@@ -466,6 +465,10 @@ class Gem::Command
     result
   end
 
+  def deprecated?
+    false
+  end
+
   private
 
   def option_is_deprecated?(option)
@@ -621,8 +624,7 @@ class Gem::Command
   # :stopdoc:
 
   HELP = <<-HELP.freeze
-RubyGems is a sophisticated package manager for Ruby.  This is a
-basic help message containing pointers to more information.
+RubyGems is a package manager for Ruby.
 
   Usage:
     gem -h/--help
@@ -646,7 +648,7 @@ basic help message containing pointers to more information.
                                  http://localhost:8808/
                                  with info about installed gems
   Further information:
-    http://guides.rubygems.org
+    https://guides.rubygems.org
   HELP
 
   # :startdoc:

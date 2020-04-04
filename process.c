@@ -97,6 +97,7 @@ int initgroups(const char *, rb_gid_t);
 #include "hrtime.h"
 #include "internal.h"
 #include "internal/bits.h"
+#include "internal/dir.h"
 #include "internal/error.h"
 #include "internal/eval.h"
 #include "internal/hash.h"
@@ -2736,8 +2737,6 @@ rb_execarg_parent_start1(VALUE execarg_obj)
             int fd2;
             if (NIL_P(fd2v)) {
                 struct open_struct open_data;
-                FilePathValue(vpath);
-		vpath = rb_str_encode_ospath(vpath);
               again:
                 open_data.fname = vpath;
                 open_data.oflags = flags;
@@ -2905,13 +2904,20 @@ rb_f_exec(int argc, const VALUE *argv)
     struct rb_execarg *eargp;
 #define CHILD_ERRMSG_BUFLEN 80
     char errmsg[CHILD_ERRMSG_BUFLEN] = { '\0' };
-    int err;
+    int err, state;
 
     execarg_obj = rb_execarg_new(argc, argv, TRUE, FALSE);
     eargp = rb_execarg_get(execarg_obj);
     if (mjit_enabled) mjit_finish(false); // avoid leaking resources, and do not leave files. XXX: JIT-ed handle can leak after exec error is rescued.
     before_exec(); /* stop timer thread before redirects */
-    rb_execarg_parent_start(execarg_obj);
+
+    rb_protect(rb_execarg_parent_start1, execarg_obj, &state);
+    if (state) {
+        execarg_parent_end(execarg_obj);
+        after_exec(); /* restart timer thread */
+        rb_jump_tag(state);
+    }
+
     fail_str = eargp->use_shell ? eargp->invoke.sh.shell_script : eargp->invoke.cmd.command_name;
 
     err = exec_async_signal_safe(eargp, errmsg, sizeof(errmsg));
@@ -3488,10 +3494,8 @@ rb_execarg_run_options(const struct rb_execarg *eargp, struct rb_execarg *sargp,
 
     if (eargp->chdir_given) {
         if (sargp) {
-            char *cwd = ruby_getcwd();
             sargp->chdir_given = 1;
-            sargp->chdir_dir = hide_obj(rb_str_new2(cwd));
-            xfree(cwd);
+            sargp->chdir_dir = hide_obj(rb_dir_getwd_ospath());
         }
         if (chdir(RSTRING_PTR(eargp->chdir_dir)) == -1) { /* async-signal-safe */
             ERRMSG("chdir");

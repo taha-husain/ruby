@@ -8,7 +8,7 @@ class Gem::SpecificationPolicy
 
   SPECIAL_CHARACTERS = /\A[#{Regexp.escape('.-_')}]+/.freeze # :nodoc:
 
-  VALID_URI_PATTERN = %r{\Ahttps?:\/\/([^\s:@]+:[^\s:@]*@)?[A-Za-z\d\-]+(\.[A-Za-z\d\-]+)+\.?(:\d{1,5})?([\/?]\S*)?\z}.freeze  # :nodoc:
+  VALID_URI_PATTERN = %r{\Ahttps?:\/\/([^\s:@]+:[^\s:@]*@)?[A-Za-z\d\-]+(\.[A-Za-z\d\-]+)+\.?(:\d{1,5})?([\/?]\S*)?\z}.freeze # :nodoc:
 
   METADATA_LINK_KEYS = %w[
     bug_tracker_uri
@@ -18,6 +18,7 @@ class Gem::SpecificationPolicy
     mailing_list_uri
     source_code_uri
     wiki_uri
+    funding_uri
   ].freeze # :nodoc:
 
   def initialize(specification)
@@ -280,7 +281,7 @@ duplicate dependency on #{dep}, (#{prev.requirement}) use:
     platform = @specification.platform
 
     case platform
-    when Gem::Platform, Gem::Platform::RUBY  # ok
+    when Gem::Platform, Gem::Platform::RUBY # ok
     else
       error "invalid platform #{platform.inspect}, see Gem::Platform"
     end
@@ -421,7 +422,7 @@ http://spdx.org/licenses or '#{Gem::Licenses::NONSTANDARD}' for a nonstandard li
   end
 
   def help_text # :nodoc:
-    "See http://guides.rubygems.org/specification-reference/ for help"
+    "See https://guides.rubygems.org/specification-reference/ for help"
   end
 
 end

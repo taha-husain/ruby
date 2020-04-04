@@ -2568,11 +2568,13 @@ class TestIO < Test::Unit::TestCase
   end
 
   def test_print_separators
-    EnvUtil.suppress_warning {$, = ':'}
-    $\ = "\n"
+    EnvUtil.suppress_warning {
+      $, = ':'
+      $\ = "\n"
+    }
     pipe(proc do |w|
       w.print('a')
-      w.print('a','b','c')
+      EnvUtil.suppress_warning {w.print('a','b','c')}
       w.close
     end, proc do |r|
       assert_equal("a\n", r.gets)
@@ -3628,15 +3630,27 @@ __END__
   end
 
   def test_open_flag_binary
+    binary_enc = Encoding.find("BINARY")
     make_tempfile do |t|
       open(t.path, File::RDONLY, flags: File::BINARY) do |f|
         assert_equal true, f.binmode?
+        assert_equal binary_enc, f.external_encoding
       end
       open(t.path, 'r', flags: File::BINARY) do |f|
         assert_equal true, f.binmode?
+        assert_equal binary_enc, f.external_encoding
       end
       open(t.path, mode: 'r', flags: File::BINARY) do |f|
         assert_equal true, f.binmode?
+        assert_equal binary_enc, f.external_encoding
+      end
+      open(t.path, File::RDONLY|File::BINARY) do |f|
+        assert_equal true, f.binmode?
+        assert_equal binary_enc, f.external_encoding
+      end
+      open(t.path, File::RDONLY|File::BINARY, autoclose: true) do |f|
+        assert_equal true, f.binmode?
+        assert_equal binary_enc, f.external_encoding
       end
     end
   end if File::BINARY != 0

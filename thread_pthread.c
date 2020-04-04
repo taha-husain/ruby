@@ -587,7 +587,7 @@ Init_native_thread(rb_thread_t *th)
         if (r) condattr_monotonic = NULL;
     }
 #endif
-    pthread_key_create(&ruby_native_thread_key, NULL);
+    pthread_key_create(&ruby_native_thread_key, 0);
     th->thread_id = pthread_self();
     fill_thread_id_str(th);
     native_thread_init(th);
@@ -950,7 +950,7 @@ static void *
 thread_start_func_1(void *th_ptr)
 {
     rb_thread_t *th = th_ptr;
-    RB_ALTSTACK_INIT(void *altstack);
+    RB_ALTSTACK_INIT(void *altstack, th->altstack);
 #if USE_THREAD_CACHE
   thread_start:
 #endif
@@ -1099,6 +1099,9 @@ native_thread_create(rb_thread_t *th)
         const size_t stack_size = th->vm->default_params.thread_machine_stack_size + th->vm->default_params.thread_vm_stack_size;
 	const size_t space = space_size(stack_size);
 
+#ifdef USE_SIGALTSTACK
+        th->altstack = rb_allocate_sigaltstack();
+#endif
         th->ec->machine.stack_maxsize = stack_size - space;
 
 	CHECK_ERR(pthread_attr_init(&attr));

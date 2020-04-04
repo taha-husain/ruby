@@ -88,6 +88,7 @@ class TestRequire < Test::Unit::TestCase
   end
 
   def prepare_require_path(dir, encoding)
+    require 'enc/trans/single_byte'
     Dir.mktmpdir {|tmp|
       begin
         require_path = File.join(tmp, dir, 'foo.rb').encode(encoding)
@@ -214,6 +215,13 @@ class TestRequire < Test::Unit::TestCase
 
   def test_require_syntax_error
     assert_syntax_error_backtrace {|req| require req}
+  end
+
+  def test_require_syntax_error_rescued
+    assert_syntax_error_backtrace do |req|
+      assert_raise_with_message(SyntaxError, /unexpected/) {require req}
+      require req
+    end
   end
 
   def test_load_syntax_error

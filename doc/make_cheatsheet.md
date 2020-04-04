@@ -36,8 +36,9 @@ $ make check
 It runs (about) three test suites:
 
 * `make test` (a test suite for the interpreter core)
-* `make test-all` : (for all builtin classes and libraries)
-* `make test-spec` : (a conformance test suite for Ruby implementations)
+* `make test-all` (for all builtin classes and libraries)
+* `make test-spec` (a conformance test suite for Ruby implementations)
+* `make test-bundler` (a test suite for the bundler examples)
 
 ## How to run the test suite with log
 
@@ -64,6 +65,12 @@ $ make test-all TESTS=ruby/foo
 $ make test-all TESTS="test/ruby/test_foo.rb -n /test_bar/"
 ```
 
+```
+$ make test-spec MSPECOPT=spec/ruby/core/foo/bar_spec.rb
+
+$ make test-bundler BUNDLER_SPECS=commands/exec_spec.rb:58
+```
+
 ## How to measure coverage of C and Ruby code
 
 You need to be able to use gcc (gcov) and lcov visualizer.
@@ -87,3 +94,7 @@ Note that `test-coverage.dat` accumulates all runs of `make test-all`.
 Make sure that you remove the file if you want to measure one test run.
 
 You can see the coverage result of CI: https://rubyci.org/coverage
+
+## How to benchmark
+
+see https://github.com/ruby/ruby/tree/master/benchmark#make-benchmark

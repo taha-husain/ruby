@@ -2806,10 +2806,13 @@ get_scale(VALUE unit)
  *  +seconds+ and +microseconds_with_frac+ since the Epoch.
  *  +seconds_with_frac+ and +microseconds_with_frac+
  *  can be an Integer, Float, Rational, or other Numeric.
- *  non-portable feature allows the offset to be negative on some systems.
+ *  A non-portable feature allows the offset to be negative on some systems.
  *
  *  If +in+ argument is given, the result is in that timezone or UTC offset, or
  *  if a numeric argument is given, the result is in local time.
+ *  The +in+ argument accepts the same types of arguments as +tz+ argument of
+ *  Time::new: string, number of seconds, or a timezone object.
+ *
  *
  *     Time.at(0)                                #=> 1969-12-31 18:00:00 -0600
  *     Time.at(Time.at(0))                       #=> 1969-12-31 18:00:00 -0600
@@ -2818,6 +2821,15 @@ get_scale(VALUE unit)
  *     Time.at(946684800.2).usec                 #=> 200000
  *     Time.at(946684800, 123456.789).nsec       #=> 123456789
  *     Time.at(946684800, 123456789, :nsec).nsec #=> 123456789
+ *
+ *     Time.at(1582721899, in: "+09:00")         #=> 2020-02-26 21:58:19 +0900
+ *     Time.at(1582721899, in: "UTC")            #=> 2020-02-26 12:58:19 UTC
+ *     Time.at(1582721899, in: "C")              #=> 2020-02-26 13:58:19 +0300
+ *     Time.at(1582721899, in: 32400)            #=> 2020-02-26 21:58:19 +0900
+ *
+ *     require 'tzinfo'
+ *     Time.at(1582721899, in: TZInfo::Timezone.get('Europe/Kiev'))
+ *                                               #=> 2020-02-26 14:58:19 +0200
  */
 
 static VALUE
@@ -5314,8 +5326,8 @@ time_mload(VALUE time, VALUE str)
     get_attr(nano_num, {});
     get_attr(nano_den, {});
     get_attr(submicro, {});
-    get_attr(offset, (offset = rb_rescue(validate_utc_offset, offset, NULL, Qnil)));
-    get_attr(zone, (zone = rb_rescue(validate_zone_name, zone, NULL, Qnil)));
+    get_attr(offset, (offset = rb_rescue(validate_utc_offset, offset, 0, Qnil)));
+    get_attr(zone, (zone = rb_rescue(validate_zone_name, zone, 0, Qnil)));
     get_attr(year, {});
 
 #undef get_attr
@@ -5697,8 +5709,9 @@ rb_time_zone_abbreviation(VALUE zone, VALUE time)
 
 /*
  *  Time is an abstraction of dates and times. Time is stored internally as
- *  the number of seconds with fraction since the _Epoch_, January 1, 1970
- *  00:00 UTC. Also see the library module Date. The Time class treats GMT
+ *  the number of seconds with fraction since the _Epoch_,
+ *  1970-01-01 00:00:00 UTC.
+ *  The Time class treats GMT
  *  (Greenwich Mean Time) and UTC (Coordinated Universal Time) as equivalent.
  *  GMT is the older way of referring to these baseline times but persists in
  *  the names of calls on POSIX systems.

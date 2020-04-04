@@ -309,7 +309,7 @@ static int rb_thread_debug_enabled;
  */
 
 static VALUE
-rb_thread_s_debug(void)
+rb_thread_s_debug(VALUE _)
 {
     return INT2NUM(rb_thread_debug_enabled);
 }
@@ -488,7 +488,7 @@ static void
 unblock_function_clear(rb_thread_t *th)
 {
     rb_native_mutex_lock(&th->interrupt_lock);
-    th->unblock.func = NULL;
+    th->unblock.func = 0;
     rb_native_mutex_unlock(&th->interrupt_lock);
 }
 
@@ -961,7 +961,7 @@ thread_initialize(VALUE thread, VALUE args)
         }
     }
     else {
-        return thread_create_core(thread, args, NULL);
+        return thread_create_core(thread, args, 0);
     }
 }
 
@@ -1477,7 +1477,7 @@ rb_nogvl(void *(*func)(void *), void *data1,
 	data2 = th;
     }
     else if (ubf && vm_living_thread_num(th->vm) == 1) {
-        if (RB_NOGVL_UBF_ASYNC_SAFE) {
+        if (flags & RB_NOGVL_UBF_ASYNC_SAFE) {
             th->vm->ubf_async_safe = 1;
         }
         else {
@@ -4582,7 +4582,7 @@ thgroup_memsize(const void *ptr)
 
 static const rb_data_type_t thgroup_data_type = {
     "thgroup",
-    {NULL, RUBY_TYPED_DEFAULT_FREE, thgroup_memsize,},
+    {0, RUBY_TYPED_DEFAULT_FREE, thgroup_memsize,},
     0, 0, RUBY_TYPED_FREE_IMMEDIATELY
 };
 

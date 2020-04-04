@@ -44,7 +44,6 @@ static void check_before_mod_set(VALUE, ID, VALUE, const char *);
 static void setup_const_entry(rb_const_entry_t *, VALUE, VALUE, rb_const_flag_t);
 static VALUE rb_const_search(VALUE klass, ID id, int exclude, int recurse, int visibility);
 static st_table *generic_iv_tbl;
-static st_table *generic_iv_tbl_compat;
 
 struct ivar_update {
     union {
@@ -1007,13 +1006,6 @@ rb_free_generic_ivar(VALUE obj)
 
     if (st_delete(generic_iv_tbl, &key, (st_data_t *)&ivtbl))
 	xfree(ivtbl);
-
-    if (generic_iv_tbl_compat) {
-	st_table *tbl;
-
-	if (st_delete(generic_iv_tbl_compat, &key, (st_data_t *)&tbl))
-	    st_free_table(tbl);
-    }
 }
 
 RUBY_FUNC_EXPORTED size_t
@@ -1142,9 +1134,12 @@ static st_table *
 iv_index_tbl_make(VALUE obj)
 {
     VALUE klass = rb_obj_class(obj);
-    st_table *iv_index_tbl = RCLASS_IV_INDEX_TBL(klass);
+    st_table *iv_index_tbl;
 
-    if (!iv_index_tbl) {
+    if (!klass) {
+        rb_raise(rb_eTypeError, "hidden object cannot have instance variables");
+    }
+    if (!(iv_index_tbl = RCLASS_IV_INDEX_TBL(klass))) {
 	iv_index_tbl = RCLASS_IV_INDEX_TBL(klass) = st_init_numtable();
     }
 

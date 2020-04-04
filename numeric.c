@@ -44,9 +44,6 @@
 #ifndef FLT_RADIX
 #define FLT_RADIX 2
 #endif
-#ifndef FLT_ROUNDS
-#define FLT_ROUNDS 1
-#endif
 #ifndef DBL_MIN
 #define DBL_MIN 2.2250738585072014e-308
 #endif
@@ -195,9 +192,6 @@ static ID id_coerce;
 VALUE rb_cNumeric;
 VALUE rb_cFloat;
 VALUE rb_cInteger;
-#ifndef RUBY_INTEGER_UNIFICATION
-VALUE rb_cFixnum;
-#endif
 
 VALUE rb_eZeroDivError;
 VALUE rb_eFloatDomainError;
@@ -5690,9 +5684,6 @@ Init_Numeric(void)
     rb_define_method(rb_cInteger, "bit_length", rb_int_bit_length, 0);
     rb_define_method(rb_cInteger, "digits", rb_int_digits, -1);
 
-#ifndef RUBY_INTEGER_UNIFICATION
-    rb_cFixnum = rb_cInteger;
-#endif
     /* An obsolete class, use Integer */
     rb_define_const(rb_cObject, "Fixnum", rb_cInteger);
     rb_deprecate_constant(rb_cObject, "Fixnum");
@@ -5702,23 +5693,6 @@ Init_Numeric(void)
     rb_undef_alloc_func(rb_cFloat);
     rb_undef_method(CLASS_OF(rb_cFloat), "new");
 
-    /*
-     *  Deprecated, do not use.
-     *
-     *  Represents the rounding mode for floating point addition at the start time.
-     *
-     *  Usually defaults to 1, rounding to the nearest number.
-     *
-     *  Other modes include:
-     *
-     *  -1::	Indeterminable
-     *	0::	Rounding towards zero
-     *	1::	Rounding to the nearest number
-     *	2::	Rounding towards positive infinity
-     *	3::	Rounding towards negative infinity
-     */
-    rb_define_const(rb_cFloat, "ROUNDS", INT2FIX(FLT_ROUNDS));
-    rb_deprecate_constant(rb_cFloat, "ROUNDS");
     /*
      *	The base of the floating point, or number of unique digits used to
      *	represent the number.

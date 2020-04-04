@@ -38,8 +38,6 @@ Zachary Scott (zzak)
 
 === Libraries
 
-[lib/English.rb]
-  _unmaintained_
 [lib/abbrev.rb]
   Akinori MUSHA (knu)
 [lib/base64.rb]
@@ -53,16 +51,6 @@ Zachary Scott (zzak)
 [lib/find.rb]
   Kazuki Tsujimoto (ktsj)
 [lib/mkmf.rb]
-  _unmaintained_
-[lib/monitor.rb]
-  Shugo Maeda (shugo)
-[lib/net/ftp.rb]
-  Shugo Maeda (shugo)
-[lib/net/imap.rb]
-  Shugo Maeda (shugo)
-[lib/net/http.rb, lib/net/https.rb]
-  NARUSE, Yui (naruse)
-[lib/net/protocol.rb]
   _unmaintained_
 [lib/open-uri.rb]
   Tanaka Akira (akr)
@@ -87,10 +75,6 @@ Zachary Scott (zzak)
   Tanaka Akira (akr)
 [lib/shellwords.rb]
   Akinori MUSHA (knu)
-[lib/tempfile.rb]
-  _unmaintained_
-[lib/tmpdir.rb]
-  _unmaintained_
 [lib/time.rb]
   Tanaka Akira (akr)
 [lib/tsort.rb]
@@ -99,8 +83,6 @@ Zachary Scott (zzak)
   WATANABE Hirofumi (eban)
 [lib/unicode_normalize.rb, lib/unicode_normalize/*]
   Martin J. Dürst
-[lib/weakref.rb]
-  _unmaintained_
 
 === Extensions
 
@@ -116,6 +98,8 @@ Zachary Scott (zzak)
   Nobuyuki Nakada (nobu)
 [ext/io/wait]
   Nobuyuki Nakada (nobu)
+[ext/monitor]
+  Koichi Sasada (ko1)
 [ext/nkf]
   NARUSE, Yui (naruse)
 [ext/objspace]
@@ -124,8 +108,6 @@ Zachary Scott (zzak)
   Tanaka Akira (akr)
 [ext/pty]
   _unmaintained_
-[ext/readline]
-  TAKAO Kouji (kouji)
 [ext/ripper]
   _unmaintained_
 [ext/socket]
@@ -148,7 +130,7 @@ Zachary Scott (zzak)
   https://rubygems.org/gems/benchmark
 [lib/bundler.rb, lib/bundler/*]
   Hiroshi SHIBATA (hsbt)
-  https://github.com/rubygems/bundler
+  https://github.com/rubygems/rubygems
   https://rubygems.org/gems/bundler
 [lib/cgi.rb, lib/cgi/*]
   Takeyuki Fujioka (xibbar)
@@ -158,6 +140,9 @@ Zachary Scott (zzak)
   Kenta Murata (mrkn), Kouhei Sutou (kou)
   https://github.com/ruby/csv
   https://rubygems.org/gems/csv
+[lib/English.rb]
+  _unmaintained_
+  https://github.com/ruby/English
 [lib/delegate.rb]
   _unmaintained_
   https://github.com/ruby/delegate
@@ -197,6 +182,15 @@ Zachary Scott (zzak)
   Keiju ISHITSUKA (keiju)
   https://github.com/ruby/mutex_m
   https://rubygems.org/gems/mutex_m
+[lib/net/ftp.rb]
+  Shugo Maeda (shugo)
+  https://github.com/ruby/net-ftp
+[lib/net/http.rb, lib/net/https.rb]
+  NARUSE, Yui (naruse)
+  https://github.com/ruby/net-http
+[lib/net/imap.rb]
+  Shugo Maeda (shugo)
+  https://github.com/ruby/net-imap
 [lib/net/pop.rb]
   _unmaintained_
   https://github.com/ruby/net-pop
@@ -205,6 +199,9 @@ Zachary Scott (zzak)
   _unmaintained_
   https://github.com/ruby/net-smtp
   https://rubygems.org/gems/net-smtp
+[lib/net/protocol.rb]
+  _unmaintained_
+  https://github.com/ruby/net-protocol
 [lib/observer.rb]
   _unmaintained_
   https://github.com/ruby/observer
@@ -243,6 +240,9 @@ Zachary Scott (zzak)
   Yukihiro Matsumoto (matz)
   https://github.com/ruby/singleton
   https://rubygems.org/gems/singleton
+[lib/tempfile.rb]
+  _unmaintained_
+  https://github.com/ruby/tempfile
 [lib/timeout.rb]
   Yukihiro Matsumoto (matz)
   https://github.com/ruby/timeout
@@ -250,6 +250,9 @@ Zachary Scott (zzak)
   Keiju ISHITSUKA (keiju)
   https://github.com/ruby/thwait
   https://rubygems.org/gems/thwait
+[lib/tmpdir.rb]
+  _unmaintained_
+  https://github.com/ruby/tmpdir
 [lib/tracer.rb]
   Keiju ISHITSUKA (keiju)
   https://github.com/ruby/tracer
@@ -263,6 +266,9 @@ Zachary Scott (zzak)
 [lib/yaml.rb, lib/yaml/*]
   Aaron Patterson (tenderlove), Hiroshi SHIBATA (hsbt)
   https://github.com/ruby/yaml
+[lib/weakref.rb]
+  _unmaintained_
+  https://github.com/ruby/weakref
 
 === Extensions
 
@@ -318,6 +324,10 @@ Zachary Scott (zzak)
   Aaron Patterson (tenderlove), Hiroshi SHIBATA (hsbt)
   https://github.com/ruby/racc
   https://rubygems.org/gems/racc
+[ext/readline]
+  TAKAO Kouji (kouji)
+  https://github.com/ruby/readline-ext
+  http:://rubygems.org/gems/readline-ext
 [ext/sdbm]
   Yukihiro Matsumoto (matz)
   https://github.com/ruby/sdbm

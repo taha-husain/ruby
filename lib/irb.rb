@@ -21,6 +21,7 @@ require "irb/locale"
 require "irb/color"
 
 require "irb/version"
+require "irb/easter-egg"
 
 # IRB stands for "interactive Ruby" and is a tool to interactively execute Ruby
 # expressions read from the standard input.
@@ -553,7 +554,8 @@ module IRB
 
     def handle_exception(exc)
       if exc.backtrace && exc.backtrace[0] =~ /\/irb(2)?(\/.*|-.*|\.rb)?:/ && exc.class.to_s !~ /^IRB/ &&
-         !(SyntaxError === exc)
+         !(SyntaxError === exc) && !(EncodingError === exc)
+        # The backtrace of invalid encoding hash (ex. {"\xAE": 1}) raises EncodingError without lineno.
         irb_bug = true
       else
         irb_bug = false
@@ -737,7 +739,7 @@ module IRB
 
     def output_value # :nodoc:
       str = @context.inspect_last_value
-      multiline_p = /\A.*\Z/ !~ str
+      multiline_p = str.include?("\n")
       if multiline_p && @context.newline_before_multiline_output?
         printf @context.return_format, "\n#{str}"
       else

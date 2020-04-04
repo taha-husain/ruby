@@ -45,9 +45,6 @@
 
 #define RB_BIGNUM_TYPE_P(x) RB_TYPE_P((x), T_BIGNUM)
 
-#ifndef RUBY_INTEGER_UNIFICATION
-VALUE rb_cBignum;
-#endif
 const char ruby_digitmap[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 #ifndef SIZEOF_BDIGIT_DBL
@@ -3409,7 +3406,7 @@ rb_absint_numwords(VALUE val, size_t word_numbits, size_t *nlz_bits_ret)
     size_t numbytes;
     int nlz_bits_in_msbyte;
     size_t numwords;
-    size_t nlz_bits;
+    size_t nlz_bits = 0;
 
     if (word_numbits == 0)
         return (size_t)-1;
@@ -3611,7 +3608,7 @@ rb_integer_pack(VALUE val, void *words, size_t numwords, size_t wordsize, size_t
 }
 
 /*
- * Import an integer into a buffer.
+ * Import an integer from a buffer.
  *
  * [words] buffer to import.
  * [numwords] the size of given buffer as number of words.
@@ -4676,12 +4673,6 @@ static size_t base36_numdigits_cache[35][MAX_BASE36_POWER_TABLE_ENTRIES];
 static void
 power_cache_init(void)
 {
-    int i, j;
-    for (i = 0; i < 35; ++i) {
-	for (j = 0; j < MAX_BASE36_POWER_TABLE_ENTRIES; ++j) {
-	    base36_power_cache[i][j] = Qnil;
-	}
-    }
 }
 
 static inline VALUE
@@ -4704,8 +4695,8 @@ power_cache_get_power(int base, int power_level, size_t *numdigits_ret)
     if (MAX_BASE36_POWER_TABLE_ENTRIES <= power_level)
         rb_bug("too big power number requested: maxpow_in_bdigit_dbl(%d)**(2**%d)", base, power_level);
 
-    if (NIL_P(base36_power_cache[base - 2][power_level])) {
-        VALUE power;
+    VALUE power = base36_power_cache[base - 2][power_level];
+    if (!power) {
         size_t numdigits;
         if (power_level == 0) {
             int numdigits0;
@@ -4725,7 +4716,7 @@ power_cache_get_power(int base, int power_level, size_t *numdigits_ret)
     }
     if (numdigits_ret)
         *numdigits_ret = base36_numdigits_cache[base - 2][power_level];
-    return base36_power_cache[base - 2][power_level];
+    return power;
 }
 
 struct big2str_struct {
@@ -7196,9 +7187,6 @@ rb_int_powm(int const argc, VALUE * const argv, VALUE const num)
 void
 Init_Bignum(void)
 {
-#ifndef RUBY_INTEGER_UNIFICATION
-    rb_cBignum = rb_cInteger;
-#endif
     /* An obsolete class, use Integer */
     rb_define_const(rb_cObject, "Bignum", rb_cInteger);
     rb_deprecate_constant(rb_cObject, "Bignum");

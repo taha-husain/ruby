@@ -4350,7 +4350,6 @@ rb_io_ungetc(VALUE io, VALUE c)
 
     GetOpenFile(io, fptr);
     rb_io_check_char_readable(fptr);
-    if (NIL_P(c)) return Qnil;
     if (FIXNUM_P(c)) {
 	c = rb_enc_uint_chr(FIX2UINT(c), io_read_encoding(fptr));
     }
@@ -5956,6 +5955,18 @@ rb_io_extract_modeenc(VALUE *vmode_p, VALUE *vperm_p, VALUE opthash,
 #endif
 	SET_UNIVERSAL_NEWLINE_DECORATOR_IF_ENC2(enc2, ecflags);
         ecopts = Qnil;
+        if (fmode & FMODE_BINMODE) {
+#ifdef O_BINARY
+            oflags |= O_BINARY;
+#endif
+            if (!has_enc)
+                rb_io_ext_int_to_encs(rb_ascii8bit_encoding(), NULL, &enc, &enc2, fmode);
+        }
+#if DEFAULT_TEXTMODE
+        else if (NIL_P(vmode)) {
+            fmode |= DEFAULT_TEXTMODE;
+        }
+#endif
     }
     else {
 	VALUE v;
@@ -7570,11 +7581,11 @@ rb_f_printf(int argc, VALUE *argv, VALUE _)
 }
 
 static void
-rb_output_fs_setter(VALUE val, ID id, VALUE *var)
+deprecated_str_setter(VALUE val, ID id, VALUE *var)
 {
     rb_str_setter(val, id, &val);
     if (!NIL_P(val)) {
-        rb_warn_deprecated("`$,'", NULL);
+        rb_warn_deprecated("`%s'", NULL, rb_id2name(id));
     }
     *var = val;
 }
@@ -7614,6 +7625,9 @@ rb_io_print(int argc, const VALUE *argv, VALUE out)
 	argc = 1;
 	line = rb_lastline_get();
 	argv = &line;
+    }
+    if (argc > 1 && !NIL_P(rb_output_fs)) {
+        rb_warn("$, is set to non-nil value");
     }
     for (i=0; i<argc; i++) {
 	if (!NIL_P(rb_output_fs) && i>0) {
@@ -12430,10 +12444,14 @@ argf_block_call_i(RB_BLOCK_CALL_FUNC_ARGLIST(i, argf))
     return Qnil;
 }
 
+#define ARGF_block_call(mid, argc, argv, func, argf) \
+    rb_block_call_kw(ARGF.current_file, mid, argc, argv, \
+                     func, argf, rb_keyword_given_p())
+
 static void
 argf_block_call(ID mid, int argc, VALUE *argv, VALUE argf)
 {
-    VALUE ret = rb_block_call(ARGF.current_file, mid, argc, argv, argf_block_call_i, argf);
+    VALUE ret = ARGF_block_call(mid, argc, argv, argf_block_call_i, argf);
     if (ret != Qundef) ARGF.next_p = 1;
 }
 
@@ -12449,7 +12467,7 @@ argf_block_call_line_i(RB_BLOCK_CALL_FUNC_ARGLIST(i, argf))
 static void
 argf_block_call_line(ID mid, int argc, VALUE *argv, VALUE argf)
 {
-    VALUE ret = rb_block_call(ARGF.current_file, mid, argc, argv, argf_block_call_line_i, argf);
+    VALUE ret = ARGF_block_call(mid, argc, argv, argf_block_call_line_i, argf);
     if (ret != Qundef) ARGF.next_p = 1;
 }
 
@@ -13275,15 +13293,15 @@ Init_IO(void)
     rb_define_method(rb_cIO, "initialize", rb_io_initialize, -1);
 
     rb_output_fs = Qnil;
-    rb_define_hooked_variable("$,", &rb_output_fs, 0, rb_output_fs_setter);
+    rb_define_hooked_variable("$,", &rb_output_fs, 0, deprecated_str_setter);
 
     rb_default_rs = rb_fstring_lit("\n"); /* avoid modifying RS_default */
     rb_gc_register_mark_object(rb_default_rs);
     rb_rs = rb_default_rs;
     rb_output_rs = Qnil;
-    rb_define_hooked_variable("$/", &rb_rs, 0, rb_str_setter);
-    rb_define_hooked_variable("$-0", &rb_rs, 0, rb_str_setter);
-    rb_define_hooked_variable("$\\", &rb_output_rs, 0, rb_str_setter);
+    rb_define_hooked_variable("$/", &rb_rs, 0, deprecated_str_setter);
+    rb_define_hooked_variable("$-0", &rb_rs, 0, deprecated_str_setter);
+    rb_define_hooked_variable("$\\", &rb_output_rs, 0, deprecated_str_setter);
 
     rb_define_virtual_variable("$_", get_LAST_READ_LINE, set_LAST_READ_LINE);
 
